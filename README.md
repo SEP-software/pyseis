@@ -1,7 +1,6 @@
 # make synthetic seismic data 
 
 ## Software and hardware requirements
-Hardware
 * At least one NVIDIA gpu with CUDA Version >= 10.0
 Download and install the following applications:
 * Singularity: https://sylabs.io/guides/3.0/user-guide/installation.html
