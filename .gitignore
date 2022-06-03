@@ -1,0 +1,11 @@
+__pycache__
+tmp
+*.ipynb_checkpoints*
+src/*.yaml
+.nv
+.bash_history
+.local
+.jupyter
+.cache
+.ipython
+.python_history
