@@ -1,8 +1,7 @@
 from mock import patch
 import pytest
 import numpy as np
-from wave_equations.elastic.ElasticIsotropic2D import ElasticIsotropic2D
-from wave_equations.elastic.ElasticIsotropic import convert_to_lame, convert_to_vel
+from wave_equations import elastic_isotropic
 from wavelets.elastic import Elastic2D
 
 N_X = 100
@@ -96,14 +95,15 @@ def mock_make(self,
 def test_fwd(ricker_wavelet, fixed_rec_locations, src_locations,
              vp_vs_rho_model_2d):
   # Arrange
-  elastic_2d = ElasticIsotropic2D(model=vp_vs_rho_model_2d,
-                                  model_sampling=(D_X, D_Z),
-                                  model_padding=(N_X_PAD, N_Z_PAD),
-                                  wavelet=ricker_wavelet,
-                                  d_t=D_T,
-                                  src_locations=src_locations,
-                                  rec_locations=fixed_rec_locations,
-                                  gpus=I_GPUS)
+  elastic_2d = elastic_isotropic.ElasticIsotropic2D(
+      model=vp_vs_rho_model_2d,
+      model_sampling=(D_X, D_Z),
+      model_padding=(N_X_PAD, N_Z_PAD),
+      wavelet=ricker_wavelet,
+      d_t=D_T,
+      src_locations=src_locations,
+      rec_locations=fixed_rec_locations,
+      gpus=I_GPUS)
   # Act
   data = elastic_2d.fwd(vp_vs_rho_model_2d)
 
@@ -116,20 +116,22 @@ def test_fwd(ricker_wavelet, fixed_rec_locations, src_locations,
 def test_init(ricker_wavelet, fixed_rec_locations, src_locations,
               vp_vs_rho_model_2d):
   # Arrange
-  elastic_2d = ElasticIsotropic2D(model=vp_vs_rho_model_2d,
-                                  model_sampling=(D_X, D_Z),
-                                  model_padding=(N_X_PAD, N_Z_PAD),
-                                  wavelet=ricker_wavelet,
-                                  d_t=D_T,
-                                  src_locations=src_locations,
-                                  rec_locations=fixed_rec_locations,
-                                  gpus=I_GPUS)
+  elastic_2d = elastic_isotropic.ElasticIsotropic2D(
+      model=vp_vs_rho_model_2d,
+      model_sampling=(D_X, D_Z),
+      model_padding=(N_X_PAD, N_Z_PAD),
+      wavelet=ricker_wavelet,
+      d_t=D_T,
+      src_locations=src_locations,
+      rec_locations=fixed_rec_locations,
+      gpus=I_GPUS)
 
 
 def test_setup_wavelet(ricker_wavelet):
   # Arrange
-  with patch.object(ElasticIsotropic2D, "make", mock_make):
-    elastic_2d = ElasticIsotropic2D(None, None, None, None, None, None, None)
+  with patch.object(elastic_isotropic.ElasticIsotropic2D, "make", mock_make):
+    elastic_2d = elastic_isotropic.ElasticIsotropic2D(None, None, None, None,
+                                                      None, None, None)
 
     # Act
     elastic_2d.setup_wavelet(ricker_wavelet, D_T)
@@ -137,9 +139,9 @@ def test_setup_wavelet(ricker_wavelet):
 
 def test_setup_data(variable_rec_locations, src_locations, vp_vs_rho_model_2d):
   # Arrange
-  with patch.object(ElasticIsotropic2D, "make", mock_make):
-    elastic_2d = ElasticIsotropic2D(None, (D_X, D_Z), None, None, None, None,
-                                    None)
+  with patch.object(elastic_isotropic.ElasticIsotropic2D, "make", mock_make):
+    elastic_2d = elastic_isotropic.ElasticIsotropic2D(None, (D_X, D_Z), None,
+                                                      None, None, None, None)
     elastic_2d.setup_model(vp_vs_rho_model_2d)
     elastic_2d.setup_src_devices(src_locations, N_T)
     elastic_2d.setup_rec_devices(variable_rec_locations, N_T)
@@ -155,9 +157,9 @@ def test_setup_data(variable_rec_locations, src_locations, vp_vs_rho_model_2d):
 def test_setup_data_fails_if_no_src_or_rec(variable_rec_locations,
                                            src_locations, vp_vs_rho_model_2d):
   # Arrange
-  with patch.object(ElasticIsotropic2D, "make", mock_make):
-    elastic_2d = ElasticIsotropic2D(None, (D_X, D_Z), None, None, None, None,
-                                    None)
+  with patch.object(elastic_isotropic.ElasticIsotropic2D, "make", mock_make):
+    elastic_2d = elastic_isotropic.ElasticIsotropic2D(None, (D_X, D_Z), None,
+                                                      None, None, None, None)
     elastic_2d.setup_model(vp_vs_rho_model_2d)
     with pytest.raises(RuntimeError):
       elastic_2d.setup_data(N_T, D_T)
@@ -174,9 +176,9 @@ def test_setup_rec_devices_variable_receivers(variable_rec_locations,
                                               src_locations,
                                               vp_vs_rho_model_2d):
   # Arrange
-  with patch.object(ElasticIsotropic2D, "make", mock_make):
-    elastic_2d = ElasticIsotropic2D(None, (D_X, D_Z), None, None, None, None,
-                                    None)
+  with patch.object(elastic_isotropic.ElasticIsotropic2D, "make", mock_make):
+    elastic_2d = elastic_isotropic.ElasticIsotropic2D(None, (D_X, D_Z), None,
+                                                      None, None, None, None)
     elastic_2d.setup_model(vp_vs_rho_model_2d)
     elastic_2d.setup_src_devices(src_locations, N_T)
 
@@ -192,9 +194,9 @@ def test_setup_rec_devices_variable_receivers(variable_rec_locations,
 def test_setup_rec_devices_variable_receivers_nshot_mismatch(
     variable_rec_locations, src_locations, vp_vs_rho_model_2d):
   # Arrange
-  with patch.object(ElasticIsotropic2D, "make", mock_make):
-    elastic_2d = ElasticIsotropic2D(None, (D_X, D_Z), None, None, None, None,
-                                    None)
+  with patch.object(elastic_isotropic.ElasticIsotropic2D, "make", mock_make):
+    elastic_2d = elastic_isotropic.ElasticIsotropic2D(None, (D_X, D_Z), None,
+                                                      None, None, None, None)
     elastic_2d.setup_model(vp_vs_rho_model_2d)
     elastic_2d.setup_src_devices(src_locations, N_T)
 
@@ -206,9 +208,9 @@ def test_setup_rec_devices_variable_receivers_nshot_mismatch(
 def test_setup_rec_devices_fixed_receivers(fixed_rec_locations, src_locations,
                                            vp_vs_rho_model_2d):
   # Arrange
-  with patch.object(ElasticIsotropic2D, "make", mock_make):
-    elastic_2d = ElasticIsotropic2D(None, (D_X, D_Z), None, None, None, None,
-                                    None)
+  with patch.object(elastic_isotropic.ElasticIsotropic2D, "make", mock_make):
+    elastic_2d = elastic_isotropic.ElasticIsotropic2D(None, (D_X, D_Z), None,
+                                                      None, None, None, None)
     elastic_2d.setup_model(vp_vs_rho_model_2d)
     elastic_2d.setup_src_devices(src_locations, N_T)
 
@@ -224,9 +226,9 @@ def test_setup_rec_devices_fixed_receivers(fixed_rec_locations, src_locations,
 def test_setup_rec_devices_fails_if_no_src_locations(fixed_rec_locations,
                                                      vp_vs_rho_model_2d):
   # Arrange
-  with patch.object(ElasticIsotropic2D, "make", mock_make):
-    elastic_2d = ElasticIsotropic2D(None, (D_X, D_Z), None, None, None, None,
-                                    None)
+  with patch.object(elastic_isotropic.ElasticIsotropic2D, "make", mock_make):
+    elastic_2d = elastic_isotropic.ElasticIsotropic2D(None, (D_X, D_Z), None,
+                                                      None, None, None, None)
     elastic_2d.setup_model(vp_vs_rho_model_2d)
     # Act and Assert
     with pytest.raises(RuntimeError):
@@ -235,9 +237,9 @@ def test_setup_rec_devices_fails_if_no_src_locations(fixed_rec_locations,
 
 def test_setup_rec_devices_fails_if_no_model(fixed_rec_locations):
   # Arrange
-  with patch.object(ElasticIsotropic2D, "make", mock_make):
-    elastic_2d = ElasticIsotropic2D(None, (D_X, D_Z), None, None, None, None,
-                                    None)
+  with patch.object(elastic_isotropic.ElasticIsotropic2D, "make", mock_make):
+    elastic_2d = elastic_isotropic.ElasticIsotropic2D(None, (D_X, D_Z), None,
+                                                      None, None, None, None)
     # Act and Assert
     with pytest.raises(RuntimeError):
       elastic_2d.setup_rec_devices(fixed_rec_locations, N_T)
@@ -245,9 +247,9 @@ def test_setup_rec_devices_fails_if_no_model(fixed_rec_locations):
 
 def test_setup_src_devices(src_locations, vp_vs_rho_model_2d):
   # Arrange
-  with patch.object(ElasticIsotropic2D, "make", mock_make):
-    elastic_2d = ElasticIsotropic2D(None, (D_X, D_Z), None, None, None, None,
-                                    None)
+  with patch.object(elastic_isotropic.ElasticIsotropic2D, "make", mock_make):
+    elastic_2d = elastic_isotropic.ElasticIsotropic2D(None, (D_X, D_Z), None,
+                                                      None, None, None, None)
     elastic_2d.setup_model(vp_vs_rho_model_2d)
 
     # Act
@@ -261,9 +263,9 @@ def test_setup_src_devices(src_locations, vp_vs_rho_model_2d):
 
 def test_setup_src_devices_fails_if_no_model(src_locations):
   # Arrange
-  with patch.object(ElasticIsotropic2D, "make", mock_make):
-    elastic_2d = ElasticIsotropic2D(None, (D_X, D_Z), None, None, None, None,
-                                    None)
+  with patch.object(elastic_isotropic.ElasticIsotropic2D, "make", mock_make):
+    elastic_2d = elastic_isotropic.ElasticIsotropic2D(None, (D_X, D_Z), None,
+                                                      None, None, None, None)
     # Act and Assert
     with pytest.raises(RuntimeError):
       elastic_2d.setup_src_devices(src_locations, N_T)
@@ -271,9 +273,9 @@ def test_setup_src_devices_fails_if_no_model(src_locations):
 
 def test_setup_model_default_padding(vp_vs_rho_model_2d):
   # Arrange
-  with patch.object(ElasticIsotropic2D, "make", mock_make):
-    elastic_2d = ElasticIsotropic2D(None, (D_X, D_Z), None, None, None, None,
-                                    None)
+  with patch.object(elastic_isotropic.ElasticIsotropic2D, "make", mock_make):
+    elastic_2d = elastic_isotropic.ElasticIsotropic2D(None, (D_X, D_Z), None,
+                                                      None, None, None, None)
 
     # Act
     elastic_2d.setup_model(vp_vs_rho_model_2d)
@@ -300,7 +302,7 @@ def test_setup_model_default_padding(vp_vs_rho_model_2d):
     end_z = start_z + N_Z
 
     # check that model was converted to lame paramters
-    lame_model_2d = convert_to_lame(vp_vs_rho_model_2d)
+    lame_model_2d = elastic_isotropic.convert_to_lame(vp_vs_rho_model_2d)
     assert np.allclose(
         elastic_2d.model_sep.getNdArray()[:, start_x:end_x, start_z:end_z],
         lame_model_2d)
@@ -308,14 +310,15 @@ def test_setup_model_default_padding(vp_vs_rho_model_2d):
 
 def test_setup_model(vp_vs_rho_model_2d):
   # Arrange
-  with patch.object(ElasticIsotropic2D, "make", mock_make):
-    elastic_2d = ElasticIsotropic2D(None, (D_X, D_Z),
-                                    None,
-                                    None,
-                                    None,
-                                    None,
-                                    None,
-                                    model_padding=(N_X_PAD, N_Z_PAD))
+  with patch.object(elastic_isotropic.ElasticIsotropic2D, "make", mock_make):
+    elastic_2d = elastic_isotropic.ElasticIsotropic2D(None, (D_X, D_Z),
+                                                      None,
+                                                      None,
+                                                      None,
+                                                      None,
+                                                      None,
+                                                      model_padding=(N_X_PAD,
+                                                                     N_Z_PAD))
 
     # Act
     elastic_2d.setup_model(vp_vs_rho_model_2d)
@@ -341,17 +344,18 @@ def test_setup_model(vp_vs_rho_model_2d):
     end_z = start_z + N_Z
 
     # check that model was converted to lame paramters
-    lame_model_2d = convert_to_lame(vp_vs_rho_model_2d)
+    lame_model_2d = elastic_isotropic.convert_to_lame(vp_vs_rho_model_2d)
     assert np.allclose(
         elastic_2d.model_sep.getNdArray()[:, start_x:end_x, start_z:end_z],
         lame_model_2d)
 
 
-# @patch.object(ElasticIsotropic2D, 'make')
+# @patch.object(elastic_isotropic.ElasticIsotropic2D, 'make')
 def test_pad_model(vp_vs_rho_model_2d):
   # Arrange
-  with patch.object(ElasticIsotropic2D, "make", mock_make):
-    elastic_2d = ElasticIsotropic2D(None, None, None, None, None, None, None)
+  with patch.object(elastic_isotropic.ElasticIsotropic2D, "make", mock_make):
+    elastic_2d = elastic_isotropic.ElasticIsotropic2D(None, None, None, None,
+                                                      None, None, None)
 
     # Act
     model, x_pad, x_pad_plus, new_o_x, z_pad, z_pad_plus, new_o_z = elastic_2d.pad_model(

@@ -1,7 +1,7 @@
 from mock import patch
 import pytest
 import numpy as np
-from wave_equations.acoustic.AcousticIsotropic2D import AcousticIsotropic2D
+from wave_equations import acoustic_isotropic
 from wavelets.acoustic import Acoustic2D
 
 N_X = 100
@@ -83,14 +83,15 @@ def mock_make(self, model, wavelet, d_t, src_locations, rec_locations, gpus):
 def test_fwd(ricker_wavelet, fixed_rec_locations, src_locations,
              vp_model_half_space):
   # Arrange
-  acoustic_2d = AcousticIsotropic2D(model=vp_model_half_space,
-                                    model_sampling=(D_X, D_Z),
-                                    model_padding=(N_X_PAD, N_Z_PAD),
-                                    wavelet=ricker_wavelet,
-                                    d_t=D_T,
-                                    src_locations=src_locations,
-                                    rec_locations=fixed_rec_locations,
-                                    gpus=I_GPUS)
+  acoustic_2d = acoustic_isotropic.AcousticIsotropic2D(
+      model=vp_model_half_space,
+      model_sampling=(D_X, D_Z),
+      model_padding=(N_X_PAD, N_Z_PAD),
+      wavelet=ricker_wavelet,
+      d_t=D_T,
+      src_locations=src_locations,
+      rec_locations=fixed_rec_locations,
+      gpus=I_GPUS)
 
   # Act
   data = acoustic_2d.fwd(vp_model_half_space)
@@ -104,20 +105,22 @@ def test_fwd(ricker_wavelet, fixed_rec_locations, src_locations,
 def test_init(ricker_wavelet, fixed_rec_locations, src_locations,
               vp_model_half_space):
   # Act
-  acoustic_2d = AcousticIsotropic2D(model=vp_model_half_space,
-                                    model_sampling=(D_X, D_Z),
-                                    model_padding=(N_X_PAD, N_Z_PAD),
-                                    wavelet=ricker_wavelet,
-                                    d_t=D_T,
-                                    src_locations=src_locations,
-                                    rec_locations=fixed_rec_locations,
-                                    gpus=I_GPUS)
+  acoustic_2d = acoustic_isotropic.AcousticIsotropic2D(
+      model=vp_model_half_space,
+      model_sampling=(D_X, D_Z),
+      model_padding=(N_X_PAD, N_Z_PAD),
+      wavelet=ricker_wavelet,
+      d_t=D_T,
+      src_locations=src_locations,
+      rec_locations=fixed_rec_locations,
+      gpus=I_GPUS)
 
 
 def test_setup_wavelet(ricker_wavelet):
   # Arrange
-  with patch.object(AcousticIsotropic2D, "make", mock_make):
-    acoustic_2d = AcousticIsotropic2D(None, None, None, None, None, None, None)
+  with patch.object(acoustic_isotropic.AcousticIsotropic2D, "make", mock_make):
+    acoustic_2d = acoustic_isotropic.AcousticIsotropic2D(
+        None, None, None, None, None, None, None)
 
     # Act
     acoustic_2d.setup_wavelet(ricker_wavelet, D_T)
@@ -125,14 +128,15 @@ def test_setup_wavelet(ricker_wavelet):
 
 def test_setup_data(variable_rec_locations, src_locations, vp_model_half_space):
   # Arrange
-  with patch.object(AcousticIsotropic2D, "make", mock_make):
-    acoustic_2d = AcousticIsotropic2D(None, (D_X, D_Z),
-                                      None,
-                                      None,
-                                      None,
-                                      None,
-                                      None,
-                                      model_padding=(N_X_PAD, N_Z_PAD))
+  with patch.object(acoustic_isotropic.AcousticIsotropic2D, "make", mock_make):
+    acoustic_2d = acoustic_isotropic.AcousticIsotropic2D(
+        None, (D_X, D_Z),
+        None,
+        None,
+        None,
+        None,
+        None,
+        model_padding=(N_X_PAD, N_Z_PAD))
     acoustic_2d.setup_model(vp_model_half_space)
     acoustic_2d.setup_src_devices(src_locations, N_T)
     acoustic_2d.setup_rec_devices(variable_rec_locations, N_T)
@@ -147,14 +151,15 @@ def test_setup_data(variable_rec_locations, src_locations, vp_model_half_space):
 def test_setup_data_fails_if_no_src_or_rec(variable_rec_locations,
                                            src_locations, vp_model_half_space):
   # Arrange
-  with patch.object(AcousticIsotropic2D, "make", mock_make):
-    acoustic_2d = AcousticIsotropic2D(None, (D_X, D_Z),
-                                      None,
-                                      None,
-                                      None,
-                                      None,
-                                      None,
-                                      model_padding=(N_X_PAD, N_Z_PAD))
+  with patch.object(acoustic_isotropic.AcousticIsotropic2D, "make", mock_make):
+    acoustic_2d = acoustic_isotropic.AcousticIsotropic2D(
+        None, (D_X, D_Z),
+        None,
+        None,
+        None,
+        None,
+        None,
+        model_padding=(N_X_PAD, N_Z_PAD))
     acoustic_2d.setup_model(vp_model_half_space)
 
     # Act and Assert
@@ -175,14 +180,15 @@ def test_setup_rec_devices_variable_receivers(variable_rec_locations,
                                               src_locations,
                                               vp_model_half_space):
   # Arrange
-  with patch.object(AcousticIsotropic2D, "make", mock_make):
-    acoustic_2d = AcousticIsotropic2D(None, (D_X, D_Z),
-                                      None,
-                                      None,
-                                      None,
-                                      None,
-                                      None,
-                                      model_padding=(N_X_PAD, N_Z_PAD))
+  with patch.object(acoustic_isotropic.AcousticIsotropic2D, "make", mock_make):
+    acoustic_2d = acoustic_isotropic.AcousticIsotropic2D(
+        None, (D_X, D_Z),
+        None,
+        None,
+        None,
+        None,
+        None,
+        model_padding=(N_X_PAD, N_Z_PAD))
     acoustic_2d.setup_model(vp_model_half_space)
     acoustic_2d.setup_src_devices(src_locations, N_T)
 
@@ -196,14 +202,15 @@ def test_setup_rec_devices_variable_receivers(variable_rec_locations,
 def test_setup_rec_devices_variable_receivers_nshot_mismatch(
     variable_rec_locations, src_locations, vp_model_half_space):
   # Arrange
-  with patch.object(AcousticIsotropic2D, "make", mock_make):
-    acoustic_2d = AcousticIsotropic2D(None, (D_X, D_Z),
-                                      None,
-                                      None,
-                                      None,
-                                      None,
-                                      None,
-                                      model_padding=(N_X_PAD, N_Z_PAD))
+  with patch.object(acoustic_isotropic.AcousticIsotropic2D, "make", mock_make):
+    acoustic_2d = acoustic_isotropic.AcousticIsotropic2D(
+        None, (D_X, D_Z),
+        None,
+        None,
+        None,
+        None,
+        None,
+        model_padding=(N_X_PAD, N_Z_PAD))
     acoustic_2d.setup_model(vp_model_half_space)
     acoustic_2d.setup_src_devices(src_locations, N_T)
 
@@ -215,14 +222,15 @@ def test_setup_rec_devices_variable_receivers_nshot_mismatch(
 def test_setup_rec_devices_fixed_receivers(fixed_rec_locations, src_locations,
                                            vp_model_half_space):
   # Arrange
-  with patch.object(AcousticIsotropic2D, "make", mock_make):
-    acoustic_2d = AcousticIsotropic2D(None, (D_X, D_Z),
-                                      None,
-                                      None,
-                                      None,
-                                      None,
-                                      None,
-                                      model_padding=(N_X_PAD, N_Z_PAD))
+  with patch.object(acoustic_isotropic.AcousticIsotropic2D, "make", mock_make):
+    acoustic_2d = acoustic_isotropic.AcousticIsotropic2D(
+        None, (D_X, D_Z),
+        None,
+        None,
+        None,
+        None,
+        None,
+        model_padding=(N_X_PAD, N_Z_PAD))
     acoustic_2d.setup_model(vp_model_half_space)
     acoustic_2d.setup_src_devices(src_locations, N_T)
 
@@ -236,14 +244,15 @@ def test_setup_rec_devices_fixed_receivers(fixed_rec_locations, src_locations,
 def test_setup_rec_devices_fails_if_no_src_locations(fixed_rec_locations,
                                                      vp_model_half_space):
   # Arrange
-  with patch.object(AcousticIsotropic2D, "make", mock_make):
-    acoustic_2d = AcousticIsotropic2D(None, (D_X, D_Z),
-                                      None,
-                                      None,
-                                      None,
-                                      None,
-                                      None,
-                                      model_padding=(N_X_PAD, N_Z_PAD))
+  with patch.object(acoustic_isotropic.AcousticIsotropic2D, "make", mock_make):
+    acoustic_2d = acoustic_isotropic.AcousticIsotropic2D(
+        None, (D_X, D_Z),
+        None,
+        None,
+        None,
+        None,
+        None,
+        model_padding=(N_X_PAD, N_Z_PAD))
     acoustic_2d.setup_model(vp_model_half_space)
 
     # Act and Assert
@@ -253,14 +262,15 @@ def test_setup_rec_devices_fails_if_no_src_locations(fixed_rec_locations,
 
 def test_setup_rec_devices_fails_if_no_model(fixed_rec_locations):
   # Arrange
-  with patch.object(AcousticIsotropic2D, "make", mock_make):
-    acoustic_2d = AcousticIsotropic2D(None, (D_X, D_Z),
-                                      None,
-                                      None,
-                                      None,
-                                      None,
-                                      None,
-                                      model_padding=(N_X_PAD, N_Z_PAD))
+  with patch.object(acoustic_isotropic.AcousticIsotropic2D, "make", mock_make):
+    acoustic_2d = acoustic_isotropic.AcousticIsotropic2D(
+        None, (D_X, D_Z),
+        None,
+        None,
+        None,
+        None,
+        None,
+        model_padding=(N_X_PAD, N_Z_PAD))
     # Act and Assert
     with pytest.raises(RuntimeError):
       acoustic_2d.setup_rec_devices(fixed_rec_locations, N_T)
@@ -268,14 +278,15 @@ def test_setup_rec_devices_fails_if_no_model(fixed_rec_locations):
 
 def test_setup_src_devices(src_locations, vp_model_half_space):
   # Arrange
-  with patch.object(AcousticIsotropic2D, "make", mock_make):
-    acoustic_2d = AcousticIsotropic2D(None, (D_X, D_Z),
-                                      None,
-                                      None,
-                                      None,
-                                      None,
-                                      None,
-                                      model_padding=(N_X_PAD, N_Z_PAD))
+  with patch.object(acoustic_isotropic.AcousticIsotropic2D, "make", mock_make):
+    acoustic_2d = acoustic_isotropic.AcousticIsotropic2D(
+        None, (D_X, D_Z),
+        None,
+        None,
+        None,
+        None,
+        None,
+        model_padding=(N_X_PAD, N_Z_PAD))
     acoustic_2d.setup_model(vp_model_half_space)
 
     # Act
@@ -287,14 +298,15 @@ def test_setup_src_devices(src_locations, vp_model_half_space):
 
 def test_setup_src_devices_fails_if_no_model(src_locations):
   # Arrange
-  with patch.object(AcousticIsotropic2D, "make", mock_make):
-    acoustic_2d = AcousticIsotropic2D(None, (D_X, D_Z),
-                                      None,
-                                      None,
-                                      None,
-                                      None,
-                                      None,
-                                      model_padding=(N_X_PAD, N_Z_PAD))
+  with patch.object(acoustic_isotropic.AcousticIsotropic2D, "make", mock_make):
+    acoustic_2d = acoustic_isotropic.AcousticIsotropic2D(
+        None, (D_X, D_Z),
+        None,
+        None,
+        None,
+        None,
+        None,
+        model_padding=(N_X_PAD, N_Z_PAD))
     # Act and Assert
     with pytest.raises(RuntimeError):
       acoustic_2d.setup_src_devices(src_locations, N_T)
@@ -302,14 +314,15 @@ def test_setup_src_devices_fails_if_no_model(src_locations):
 
 def test_setup_model(vp_model_half_space):
   # Arrange
-  with patch.object(AcousticIsotropic2D, "make", mock_make):
-    acoustic_2d = AcousticIsotropic2D(None, (D_X, D_Z),
-                                      None,
-                                      None,
-                                      None,
-                                      None,
-                                      None,
-                                      model_padding=(N_X_PAD, N_Z_PAD))
+  with patch.object(acoustic_isotropic.AcousticIsotropic2D, "make", mock_make):
+    acoustic_2d = acoustic_isotropic.AcousticIsotropic2D(
+        None, (D_X, D_Z),
+        None,
+        None,
+        None,
+        None,
+        None,
+        model_padding=(N_X_PAD, N_Z_PAD))
 
     # Act
     acoustic_2d.setup_model(vp_model_half_space)
@@ -340,8 +353,9 @@ def test_setup_model(vp_model_half_space):
 
 def test_pad_model(vp_model_half_space):
   # Arrange
-  with patch.object(AcousticIsotropic2D, "make", mock_make):
-    acoustic_2d = AcousticIsotropic2D(None, None, None, None, None, None, None)
+  with patch.object(acoustic_isotropic.AcousticIsotropic2D, "make", mock_make):
+    acoustic_2d = acoustic_isotropic.AcousticIsotropic2D(
+        None, None, None, None, None, None, None)
 
     # Act
     model, x_pad, x_pad_plus, new_o_x, z_pad, z_pad_plus, new_o_z = acoustic_2d.pad_model(
