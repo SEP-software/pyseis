@@ -23,6 +23,7 @@ operations. Current implementation parallelizes shots over gpus.
 """
 import numpy as np
 from math import ceil
+import abc
 import Hypercube
 import SepVector
 import pyOperator as Operator
@@ -38,21 +39,22 @@ from dataCompModule_3D import ElasticDatComp_3D as _ElasticDatComp_3D
 
 
 class ElasticIsotropic(wave_equation.WaveEquation):
-  block_size = 16
-  fat = 4
+  _BLOCK_SIZE = 16
+  _FAT = 4
+  _N_MODEL_PARAMETERS = 3
 
   def __init__(self):
     super().__init__()
 
-  def make(self,
-           model,
-           wavelet,
-           d_t,
-           src_locations,
-           rec_locations,
-           gpus,
-           recording_components,
-           lame_model=False):
+  def _make(self,
+            model,
+            wavelet,
+            d_t,
+            src_locations,
+            rec_locations,
+            gpus,
+            recording_components,
+            lame_model=False):
     """Make an elastic, isotropic wave-equation operator.
 
     Operator can be used to forward model the elastic, isotropic wave equation
@@ -100,22 +102,22 @@ class ElasticIsotropic(wave_equation.WaveEquation):
           Defaults to False.
     """
     # pads model, makes self.model_sep, and updates self.fd_param
-    self.setup_model(model, lame_model)
+    self._setup_model(model, lame_model)
 
     # make and set wavelet
-    self.setup_wavelet(wavelet, d_t)
+    self._setup_wavelet(wavelet, d_t)
 
     # make and set source devices
-    self.setup_src_devices(src_locations, self.fd_param['n_t'])
+    self._setup_src_devices(src_locations, self.fd_param['n_t'])
 
     # make and set rec devices
-    self.setup_rec_devices(rec_locations, self.fd_param['n_t'])
+    self._setup_rec_devices(rec_locations, self.fd_param['n_t'])
 
     # make and set data space
-    self.setup_data(self.fd_param['n_t'], d_t)
+    self._setup_data(self.fd_param['n_t'], d_t)
 
     # calculate and find subsampling
-    self.setup_subsampling(model, d_t, self.model_sampling, lame_model)
+    self._setup_subsampling(model, d_t, self.model_sampling, lame_model)
 
     # set gpus list
     self.fd_param['gpus'] = str(gpus)[1:-1]
@@ -124,18 +126,18 @@ class ElasticIsotropic(wave_equation.WaveEquation):
     self.fd_param['ginsu'] = 0
 
     # make and set sep par
-    self.setup_sep_par(self.fd_param)
+    self._setup_sep_par(self.fd_param)
 
     # make and set gpu operator
-    self.setup_wave_prop_operator(self.data_sep, self.model_sep, self.sep_param,
-                                  self.src_devices, self.rec_devices,
-                                  self.wavelet_sep)
+    self._setup_wave_prop_operator(self.data_sep, self.model_sep,
+                                   self.sep_param, self.src_devices,
+                                   self.rec_devices, self.wavelet_sep)
 
     # append wavefield sampling to gpu operator
-    self.setup_wavefield_sampling_operator(recording_components, self.data_sep)
+    self._setup_wavefield_sampling_operator(recording_components, self.data_sep)
 
-  def setup_subsampling(self, model, d_t, model_sampling, lame_model=False):
-    sub = self.calc_subsampling(model, d_t, model_sampling, lame_model)
+  def _setup_subsampling(self, model, d_t, model_sampling, lame_model=False):
+    sub = self._calc_subsampling(model, d_t, model_sampling, lame_model)
     if 'sub' in self.fd_param:
       if sub > self.fd_param['sub']:
         raise RuntimeError(
@@ -143,7 +145,7 @@ class ElasticIsotropic(wave_equation.WaveEquation):
         )
     self.fd_param['sub'] = sub
 
-  def calc_subsampling(self, model, d_t, model_sampling, lame_model=False):
+  def _calc_subsampling(self, model, d_t, model_sampling, lame_model=False):
     """Find time downsampling needed during propagation to remain stable.
 
     Args:
@@ -164,10 +166,13 @@ class ElasticIsotropic(wave_equation.WaveEquation):
 
     return d_t_sub
 
+  @abc.abstractmethod
+  def _setup_wavefield_sampling_operator(self, recording_components, data_sep):
+    pass
+
 
 class ElasticIsotropic2D(ElasticIsotropic):
-  N_WFLD_COMPONENTS = 5
-  N_MODEL_PARAMETERS = 3
+  _N_WFLD_COMPONENTS = 5
 
   def __init__(self,
                model,
@@ -198,14 +203,14 @@ class ElasticIsotropic2D(ElasticIsotropic):
     self.model_sampling = model_sampling
     self.model_padding = model_padding
     self.model_origins = model_origins
-    self.make(model, wavelet, d_t, src_locations, rec_locations, gpus,
-              recording_components, lame_model)
+    self._make(model, wavelet, d_t, src_locations, rec_locations, gpus,
+               recording_components, lame_model)
 
-  def setup_model(self, model, lame_model=False):
+  def _setup_model(self, model, lame_model=False):
     if not lame_model:
       model = convert_to_lame(model)
     self.fd_param['mod_par'] = 1
-    model, x_pad, x_pad_plus, new_o_x, z_pad, z_pad_plus, new_o_z = self.pad_model(
+    model, x_pad, x_pad_plus, new_o_x, z_pad, z_pad_plus, new_o_z = self._pad_model(
         model, self.model_sampling, self.model_padding, self.model_origins)
     self.model = model
     self.model_sep = SepVector.getSepVector(
@@ -228,11 +233,15 @@ class ElasticIsotropic2D(ElasticIsotropic):
     self.fd_param['z_pad_minus'] = z_pad
     self.fd_param['z_pad_plus'] = z_pad_plus
 
-  def pad_model(self, model, model_sampling, model_padding, model_origins=None):
+  def _pad_model(self,
+                 model,
+                 model_sampling,
+                 model_padding,
+                 model_origins=None):
     """Pad 2d model.
 
     Finds the correct padding on either end of the axis so both directions are
-    divisible by block_size for optimal gpu computation.
+    divisible by _BLOCK_SIZE for optimal gpu computation.
 
     Args:
         model (2d np array): 2d model to be padded. Should have shape
@@ -257,34 +266,34 @@ class ElasticIsotropic2D(ElasticIsotropic):
 
     # Compute size of z_pad_plus
     n_z_total = z_pad * 2 + n_z
-    ratio_z = n_z_total / self.block_size
+    ratio_z = n_z_total / self._BLOCK_SIZE
     nb_blockz = ceil(ratio_z)
-    z_pad_plus = nb_blockz * self.block_size - n_z - z_pad
+    z_pad_plus = nb_blockz * self._BLOCK_SIZE - n_z - z_pad
 
     # Compute sixe of x_pad_plus
     n_x_total = x_pad * 2 + n_x
-    ratio_x = n_x_total / self.block_size
+    ratio_x = n_x_total / self._BLOCK_SIZE
     nb_blockx = ceil(ratio_x)
-    x_pad_plus = nb_blockx * self.block_size - n_x - x_pad
+    x_pad_plus = nb_blockx * self._BLOCK_SIZE - n_x - x_pad
 
     # pad
     model = np.pad(np.pad(model,
                           ((0, 0), (x_pad, x_pad_plus), (z_pad, z_pad_plus)),
                           mode='edge'),
-                   ((0, 0), (self.fat, self.fat), (self.fat, self.fat)),
+                   ((0, 0), (self._FAT, self._FAT), (self._FAT, self._FAT)),
                    mode='constant')
 
     # Compute new origins
-    new_o_x = model_origins[0] - (self.fat + x_pad) * d_x
-    new_o_z = model_origins[1] - (self.fat + z_pad) * d_z
+    new_o_x = model_origins[0] - (self._FAT + x_pad) * d_x
+    new_o_z = model_origins[1] - (self._FAT + z_pad) * d_z
 
     return model, x_pad, x_pad_plus, new_o_x, z_pad, z_pad_plus, new_o_z
 
-  def setup_src_devices(self,
-                        src_locations,
-                        n_t,
-                        interp_method='linear',
-                        interp_n_filters=4):
+  def _setup_src_devices(self,
+                         src_locations,
+                         n_t,
+                         interp_method='linear',
+                         interp_n_filters=4):
     """
     src_locations - [n_src,(x_pos,z_pos)]
     """
@@ -294,7 +303,7 @@ class ElasticIsotropic2D(ElasticIsotropic):
     if 'n_src' in self.fd_param:
       assert self.fd_param['n_src'] == len(src_locations)
 
-    staggered_grid_hypers = self.make_staggered_grid_hypers(
+    staggered_grid_hypers = self._make_staggered_grid_hypers(
         self.fd_param['n_x'], self.fd_param['n_z'], self.fd_param['o_x'],
         self.fd_param['o_z'], self.fd_param['d_x'], self.fd_param['d_z'])
 
@@ -314,11 +323,11 @@ class ElasticIsotropic2D(ElasticIsotropic):
     self.fd_param['n_src'] = len(src_locations)
     self.src_devices = src_devices_staggered_grids
 
-  def setup_rec_devices(self,
-                        rec_locations,
-                        n_t,
-                        interp_method='linear',
-                        interp_n_filters=4):
+  def _setup_rec_devices(self,
+                         rec_locations,
+                         n_t,
+                         interp_method='linear',
+                         interp_n_filters=4):
     """
     src_locations - [n_rec,(x_pos,z_pos)] OR [n_src,n_rec,(x_pos,z_pos)]
     """
@@ -342,7 +351,7 @@ class ElasticIsotropic2D(ElasticIsotropic):
                                 n_src,
                                 axis=0)
 
-    staggered_grid_hypers = self.make_staggered_grid_hypers(
+    staggered_grid_hypers = self._make_staggered_grid_hypers(
         self.fd_param['n_x'], self.fd_param['n_z'], self.fd_param['o_x'],
         self.fd_param['o_z'], self.fd_param['d_x'], self.fd_param['d_z'])
 
@@ -362,7 +371,7 @@ class ElasticIsotropic2D(ElasticIsotropic):
     self.fd_param['n_rec'] = n_rec
     self.rec_devices = rec_devices_staggered_grids
 
-  def setup_data(self, n_t, d_t):
+  def _setup_data(self, n_t, d_t):
     if 'n_src' not in self.fd_param:
       raise RuntimeError(
           'self.fd_param[\'n_src\'] must be set to set setup_data')
@@ -374,33 +383,33 @@ class ElasticIsotropic2D(ElasticIsotropic):
         Hypercube.hypercube(axes=[
             Hypercube.axis(n=n_t, o=0.0, d=d_t),
             Hypercube.axis(n=self.fd_param['n_rec'], o=0.0, d=1.0),
-            Hypercube.axis(n=self.N_WFLD_COMPONENTS, o=0.0, d=1),
+            Hypercube.axis(n=self._N_WFLD_COMPONENTS, o=0.0, d=1),
             Hypercube.axis(n=self.fd_param['n_src'], o=0.0, d=1.0)
         ]))
 
     self.data_sep = data_sep
 
-  def make_sep_wavelet(self, wavelet, d_t):
+  def _make_sep_wavelet(self, wavelet, d_t):
     n_t = wavelet.shape[-1]
     wavelet_sep = SepVector.getSepVector(
         Hypercube.hypercube(axes=[
             Hypercube.axis(n=n_t, o=0.0, d=d_t),
             Hypercube.axis(n=1),
-            Hypercube.axis(n=self.N_WFLD_COMPONENTS),
+            Hypercube.axis(n=self._N_WFLD_COMPONENTS),
             Hypercube.axis(n=1)
         ]))
     wavelet_sep.getNdArray()[0, :, 0, :] = wavelet
 
     return wavelet_sep
 
-  def make_staggered_grid_hypers(self, n_x, n_z, o_x, o_z, d_x, d_z):
+  def _make_staggered_grid_hypers(self, n_x, n_z, o_x, o_z, d_x, d_z):
     z_axis = Hypercube.axis(n=n_z, o=o_z, d=d_z)
     z_axis_staggered = Hypercube.axis(n=n_z, o=o_z - 0.5 * d_z, d=d_z)
 
     x_axis = Hypercube.axis(n=n_x, o=o_x, d=d_x)
     x_axis_staggered = Hypercube.axis(n=n_x, o=o_x - 0.5 * d_x, d=d_x)
 
-    param_axis = Hypercube.axis(n=self.N_MODEL_PARAMETERS, o=0.0, d=1)
+    param_axis = Hypercube.axis(n=self._N_MODEL_PARAMETERS, o=0.0, d=1)
 
     center_grid_hyper = Hypercube.hypercube(axes=[z_axis, x_axis, param_axis])
     x_staggered_grid_hyper = Hypercube.hypercube(
@@ -412,7 +421,7 @@ class ElasticIsotropic2D(ElasticIsotropic):
 
     return center_grid_hyper, x_staggered_grid_hyper, z_staggered_grid_hyper, xz_staggered_grid_hyper
 
-  def setup_wavefield_sampling_operator(self, recording_components, data_sep):
+  def _setup_wavefield_sampling_operator(self, recording_components, data_sep):
     # _ElasticDatComp2D expects a string of comma seperated values
     recording_components = ",".join(recording_components)
     #make sampling opeartor
@@ -425,8 +434,7 @@ class ElasticIsotropic2D(ElasticIsotropic):
 
 
 class ElasticIsotropic3D(ElasticIsotropic):
-  N_WFLD_COMPONENTS = 9
-  N_MODEL_PARAMETERS = 3
+  _N_WFLD_COMPONENTS = 9
 
   def __init__(self,
                model,
@@ -453,15 +461,15 @@ class ElasticIsotropic3D(ElasticIsotropic):
     self.model_sampling = model_sampling
     self.model_padding = model_padding
     self.model_origins = model_origins
-    self.make(model, wavelet, d_t, src_locations, rec_locations, gpus,
-              recording_components, lame_model)
+    self._make(model, wavelet, d_t, src_locations, rec_locations, gpus,
+               recording_components, lame_model)
 
-  def setup_model(self, model, lame_model=False):
+  def _setup_model(self, model, lame_model=False):
     if not lame_model:
       model = convert_to_lame(model)
 
     self.fd_param['mod_par'] = 1
-    model, y_pad, y_pad_plus, new_o_y, x_pad, x_pad_plus, new_o_x, z_pad, z_pad_plus, new_o_z = self.pad_model(
+    model, y_pad, y_pad_plus, new_o_y, x_pad, x_pad_plus, new_o_x, z_pad, z_pad_plus, new_o_z = self._pad_model(
         model, self.model_sampling, self.model_padding, self.model_origins)
     self.model = model
     self.model_sep = SepVector.getSepVector(
@@ -490,11 +498,15 @@ class ElasticIsotropic3D(ElasticIsotropic):
     self.fd_param['z_pad_minus'] = z_pad
     self.fd_param['z_pad_plus'] = z_pad_plus
 
-  def pad_model(self, model, model_sampling, model_padding, model_origins=None):
+  def _pad_model(self,
+                 model,
+                 model_sampling,
+                 model_padding,
+                 model_origins=None):
     """Pad 3d model.
 
     Finds the correct padding on either end of the axis so both directions are
-    divisible by block_size for optimal gpu computation.
+    divisible by _BLOCK_SIZE for optimal gpu computation.
 
     Args:
         model (3d np array): 3d model to be padded. Should have shape
@@ -522,15 +534,15 @@ class ElasticIsotropic3D(ElasticIsotropic):
 
     # Compute size of z_pad_plus
     n_z_total = z_pad * 2 + n_z
-    ratio_z = n_z_total / self.block_size
+    ratio_z = n_z_total / self._BLOCK_SIZE
     nb_blockz = ceil(ratio_z)
-    z_pad_plus = nb_blockz * self.block_size - n_z - z_pad
+    z_pad_plus = nb_blockz * self._BLOCK_SIZE - n_z - z_pad
 
     # Compute sixe of x_pad_plus
     n_x_total = x_pad * 2 + n_x
-    ratio_x = n_x_total / self.block_size
+    ratio_x = n_x_total / self._BLOCK_SIZE
     nb_blockx = ceil(ratio_x)
-    x_pad_plus = nb_blockx * self.block_size - n_x - x_pad
+    x_pad_plus = nb_blockx * self._BLOCK_SIZE - n_x - x_pad
 
     # compute y axis padding
     y_pad_plus = y_pad
@@ -539,18 +551,18 @@ class ElasticIsotropic3D(ElasticIsotropic):
     model = np.pad(np.pad(model, ((0, 0), (y_pad, y_pad_plus),
                                   (x_pad, x_pad_plus), (z_pad, z_pad_plus)),
                           mode='edge'),
-                   ((0, 0), (self.fat, self.fat), (self.fat, self.fat),
-                    (self.fat, self.fat)),
+                   ((0, 0), (self._FAT, self._FAT), (self._FAT, self._FAT),
+                    (self._FAT, self._FAT)),
                    mode='constant')
 
     # Compute new origins
-    new_o_y = model_origins[0] - (self.fat + y_pad) * d_y
-    new_o_x = model_origins[1] - (self.fat + x_pad) * d_x
-    new_o_z = model_origins[2] - (self.fat + z_pad) * d_z
+    new_o_y = model_origins[0] - (self._FAT + y_pad) * d_y
+    new_o_x = model_origins[1] - (self._FAT + x_pad) * d_x
+    new_o_z = model_origins[2] - (self._FAT + z_pad) * d_z
 
     return model, y_pad, y_pad_plus, new_o_y, x_pad, x_pad_plus, new_o_x, z_pad, z_pad_plus, new_o_z
 
-  def setup_src_devices(self, src_locations, n_t, interp_method='linear'):
+  def _setup_src_devices(self, src_locations, n_t, interp_method='linear'):
     """
     src_locations - [n_src,(x_pos,z_pos)]
     """
@@ -560,13 +572,13 @@ class ElasticIsotropic3D(ElasticIsotropic):
     if 'n_src' in self.fd_param:
       assert self.fd_param['n_src'] == len(src_locations)
 
-    staggered_grid_hypers = self.make_staggered_grid_hypers(
+    staggered_grid_hypers = self._make_staggered_grid_hypers(
         self.fd_param['n_y'], self.fd_param['n_x'], self.fd_param['n_z'],
         self.fd_param['o_y'], self.fd_param['o_x'], self.fd_param['o_z'],
         self.fd_param['d_y'], self.fd_param['d_x'], self.fd_param['d_z'])
 
-    sep_par = self.make_sep_par({
-        'fat': self.fd_param['fat'],
+    sep_par = self._make_sep_par({
+        'fat': self.fd_param['_FAT'],
         'zPadMinus': self.fd_param['z_pad_minus'],
         'zPadPlus': self.fd_param['z_pad_plus'],
         'xPadMinus': self.fd_param['x_pad_minus'],
@@ -593,11 +605,11 @@ class ElasticIsotropic3D(ElasticIsotropic):
     self.fd_param['n_src'] = len(src_locations)
     self.src_devices = src_devices_staggered_grids
 
-  def setup_rec_devices(self,
-                        rec_locations,
-                        n_t,
-                        interp_method='linear',
-                        interp_n_filters=4):
+  def _setup_rec_devices(self,
+                         rec_locations,
+                         n_t,
+                         interp_method='linear',
+                         interp_n_filters=4):
     """
     src_locations - [n_rec,(x_pos,z_pos)] OR [n_src,n_rec,(x_pos,z_pos)]
     """
@@ -622,13 +634,13 @@ class ElasticIsotropic3D(ElasticIsotropic):
       #                           axis=0)
       rec_locations = np.expand_dims(rec_locations, axis=0)
 
-    staggered_grid_hypers = self.make_staggered_grid_hypers(
+    staggered_grid_hypers = self._make_staggered_grid_hypers(
         self.fd_param['n_y'], self.fd_param['n_x'], self.fd_param['n_z'],
         self.fd_param['o_y'], self.fd_param['o_x'], self.fd_param['o_z'],
         self.fd_param['d_y'], self.fd_param['d_x'], self.fd_param['d_z'])
 
-    sep_par = self.make_sep_par({
-        'fat': self.fd_param['fat'],
+    sep_par = self._make_sep_par({
+        'fat': self.fd_param['_FAT'],
         'zPadMinus': self.fd_param['z_pad_minus'],
         'zPadPlus': self.fd_param['z_pad_plus'],
         'xPadMinus': self.fd_param['x_pad_minus'],
@@ -656,7 +668,7 @@ class ElasticIsotropic3D(ElasticIsotropic):
     self.fd_param['n_rec'] = n_rec
     self.rec_devices = rec_devices_staggered_grids
 
-  def setup_data(self, n_t, d_t):
+  def _setup_data(self, n_t, d_t):
     if 'n_src' not in self.fd_param:
       raise RuntimeError(
           'self.fd_param[\'n_src\'] must be set to set setup_data')
@@ -668,27 +680,27 @@ class ElasticIsotropic3D(ElasticIsotropic):
         Hypercube.hypercube(axes=[
             Hypercube.axis(n=n_t, o=0.0, d=d_t),
             Hypercube.axis(n=self.fd_param['n_rec'], o=0.0, d=1.0),
-            Hypercube.axis(n=self.N_WFLD_COMPONENTS, o=0.0, d=1),
+            Hypercube.axis(n=self._N_WFLD_COMPONENTS, o=0.0, d=1),
             Hypercube.axis(n=self.fd_param['n_src'], o=0.0, d=1.0)
         ]))
 
     self.data_sep = data_sep
 
-  def make_sep_wavelet(self, wavelet, d_t):
+  def _make_sep_wavelet(self, wavelet, d_t):
     n_t = wavelet.shape[-1]
     wavelet_sep = SepVector.getSepVector(
         Hypercube.hypercube(axes=[
             Hypercube.axis(n=n_t, o=0.0, d=d_t),
             Hypercube.axis(n=1),
-            Hypercube.axis(n=self.N_WFLD_COMPONENTS),
+            Hypercube.axis(n=self._N_WFLD_COMPONENTS),
             Hypercube.axis(n=1)
         ]))
     wavelet_sep.getNdArray().flat[:] = wavelet
 
     return wavelet_sep
 
-  def make_staggered_grid_hypers(self, n_y, n_x, n_z, o_y, o_x, o_z, d_y, d_x,
-                                 d_z):
+  def _make_staggered_grid_hypers(self, n_y, n_x, n_z, o_y, o_x, o_z, d_y, d_x,
+                                  d_z):
     z_axis = Hypercube.axis(n=n_z, o=o_z, d=d_z)
     z_axis_staggered = Hypercube.axis(n=n_z, o=o_z - 0.5 * d_z, d=d_z)
 
@@ -698,7 +710,7 @@ class ElasticIsotropic3D(ElasticIsotropic):
     y_axis = Hypercube.axis(n=n_y, o=o_y, d=d_y)
     y_axis_staggered = Hypercube.axis(n=n_y, o=o_y - 0.5 * d_y, d=d_y)
 
-    param_axis = Hypercube.axis(n=self.N_MODEL_PARAMETERS, o=0.0, d=1)
+    param_axis = Hypercube.axis(n=self._N_MODEL_PARAMETERS, o=0.0, d=1)
 
     center_grid_hyper = Hypercube.hypercube(
         axes=[z_axis, x_axis, y_axis, param_axis])
@@ -717,7 +729,7 @@ class ElasticIsotropic3D(ElasticIsotropic):
 
     return center_grid_hyper, x_staggered_grid_hyper, y_staggered_grid_hyper, z_staggered_grid_hyper, xz_staggered_grid_hyper, xy_staggered_grid_hyper, yz_staggered_grid_hyper
 
-  def setup_wavefield_sampling_operator(self, recording_components, data_sep):
+  def _setup_wavefield_sampling_operator(self, recording_components, data_sep):
     # _ElasticDatComp_3D expects a string of comma seperated values
     recording_components = ",".join(recording_components)
     #make sampling opeartor

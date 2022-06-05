@@ -1,21 +1,21 @@
 from mock import patch
 import pytest
 import numpy as np
-from wave_equations import acoustic_isotropic
-from wavelets.acoustic import Acoustic3D
+from wave_equations import elastic_isotropic
+from wavelets.elastic import Elastic3D
 
 N_Y = 51
-D_Y = 10.0
+D_Y = 9.0
 N_X = 52
 D_X = 10.0
 N_Z = 53
-D_Z = 10.0
+D_Z = 11.0
 N_Y_PAD = 20
 N_X_PAD = 21
 N_Z_PAD = 22
 V_P = 2500
-VP_1 = 1500
-VP_2 = 2500
+V_S = 1000
+RHO = 2000
 
 N_T = 251
 D_T = 0.004
@@ -30,23 +30,26 @@ F4 = 30
 N_SRCS = 4
 Z_SHOT = 10.0
 N_REC = 7
-D_X_REC = 10.0
-D_Y_REC = 10.0
-Z_REC = 10.0
-#expected values
+D_X_REC = 2.0
+D_Y_REC = 1.0
+Z_REC = 15.0
+
 I_GPUS = [0, 1, 2, 3]
+
+#expected values
+N_WFLD_COMPONENTS = 9
 
 
 @pytest.fixture
 def ricker_wavelet():
-  ricker = Acoustic3D.AcousticIsotropicRicker3D(N_T, D_T, DOM_FREQ, DELAY)
+  ricker = Elastic3D.ElasticIsotropicRicker3D(N_T, D_T, DOM_FREQ, DELAY)
   return ricker.get_arr()
 
 
 @pytest.fixture
 def trapezoid_wavelet():
-  trapezoid = Acoustic3D.AcousticIsotropicTrapezoid3D(N_T, D_T, F1, F2, F3, F4,
-                                                      DELAY)
+  trapezoid = Elastic3D.ElasticIsotropicTrapezoid3D(N_T, D_T, F1, F2, F3, F4,
+                                                    DELAY)
   return trapezoid.get_arr()
 
 
@@ -61,6 +64,7 @@ def src_locations():
                        num=N_SRCS,
                        endpoint=False)
   z_locs = np.ones(N_SRCS) * Z_SHOT
+
   return np.array([y_locs, x_locs, z_locs]).T
 
 
@@ -89,27 +93,60 @@ def variable_rec_locations(src_locations):
 
 
 @pytest.fixture
-def vp_model_half_space():
-  vp_model = np.ones((N_Y, N_X, N_Z)) * V_P
-  # vp_model[..., :(N_Z // 2] = VP_1
-  # vp_model[..., N_Z // 2:] = VP_2
-  return vp_model
+def vp_vs_rho_model_3d():
+  vp_3d = V_P * np.ones((N_Y, N_X, N_Z))
+  vs_3d = V_S * np.ones((N_Y, N_X, N_Z))
+  rho_3d = RHO * np.ones((N_Y, N_X, N_Z))
+
+  return np.array((vp_3d, vs_3d, rho_3d))
 
 
 # mock the make function so we can test all of the individual function calls within make below
-def mock_make(self, model, wavelet, d_t, src_locations, rec_locations, gpus):
+# mock the make function so we can test all of the individual function calls within make below
+def mock_make(self,
+              model,
+              wavelet,
+              d_t,
+              src_locations,
+              rec_locations,
+              gpus,
+              recording_components,
+              lame_model=False):
   return None
 
 
 ###############################################
-#### AcousticIsotropic3D tests ################
+##### elastic_isotropic.ElasticIsotropic3D tests ################
 ###############################################
 @pytest.mark.gpu
-def test_fwd(trapezoid_wavelet, fixed_rec_locations, src_locations,
-             vp_model_half_space):
+def test_fwd_vel_components(trapezoid_wavelet, fixed_rec_locations,
+                            src_locations, vp_vs_rho_model_3d):
   # Arrange
-  acoustic_3d = acoustic_isotropic.AcousticIsotropic3D(
-      model=vp_model_half_space,
+  recording_components = ['vy', 'vx', 'vz']
+  elastic_3d = elastic_isotropic.ElasticIsotropic3D(
+      model=vp_vs_rho_model_3d,
+      model_sampling=(D_Y, D_X, D_Z),
+      model_padding=(N_Y_PAD, N_X_PAD, N_Z_PAD),
+      wavelet=trapezoid_wavelet,
+      d_t=D_T,
+      src_locations=src_locations,
+      rec_locations=fixed_rec_locations,
+      gpus=I_GPUS,
+      recording_components=recording_components)
+
+  # Act
+  data = elastic_3d.fwd(vp_vs_rho_model_3d)
+
+  # Assert
+  assert data.shape == (N_SRCS, len(recording_components), N_REC * N_REC, N_T)
+
+
+@pytest.mark.gpu
+def test_fwd(trapezoid_wavelet, fixed_rec_locations, src_locations,
+             vp_vs_rho_model_3d):
+  # Arrange
+  elastic_3d = elastic_isotropic.ElasticIsotropic3D(
+      model=vp_vs_rho_model_3d,
       model_sampling=(D_Y, D_X, D_Z),
       model_padding=(N_Y_PAD, N_X_PAD, N_Z_PAD),
       wavelet=trapezoid_wavelet,
@@ -119,18 +156,18 @@ def test_fwd(trapezoid_wavelet, fixed_rec_locations, src_locations,
       gpus=I_GPUS)
 
   # Act
-  data = acoustic_3d.fwd(vp_model_half_space)
+  data = elastic_3d.fwd(vp_vs_rho_model_3d)
 
   # Assert
-  assert data.shape == (N_SRCS, N_REC * N_REC, N_T)
-  assert not np.all((data == 0))
+  assert data.shape == (N_SRCS, N_WFLD_COMPONENTS, N_REC * N_REC, N_T)
 
 
+@pytest.mark.gpu
 def test_init(trapezoid_wavelet, fixed_rec_locations, src_locations,
-              vp_model_half_space):
+              vp_vs_rho_model_3d):
   # Act
-  acoustic_3d = acoustic_isotropic.AcousticIsotropic3D(
-      model=vp_model_half_space,
+  elastic_3d = elastic_isotropic.ElasticIsotropic3D(
+      model=vp_vs_rho_model_3d,
       model_sampling=(D_Y, D_X, D_Z),
       model_padding=(N_Y_PAD, N_X_PAD, N_Z_PAD),
       wavelet=trapezoid_wavelet,
@@ -142,274 +179,278 @@ def test_init(trapezoid_wavelet, fixed_rec_locations, src_locations,
 
 def test_setup_wavelet(trapezoid_wavelet):
   # Arrange
-  with patch.object(acoustic_isotropic.AcousticIsotropic3D, "make", mock_make):
-    acoustic_3d = acoustic_isotropic.AcousticIsotropic3D(
-        None, None, None, None, None, None, None)
-
+  with patch.object(elastic_isotropic.ElasticIsotropic3D, "_make", mock_make):
+    elastic_3d = elastic_isotropic.ElasticIsotropic3D(None, (D_Y, D_X, D_Z),
+                                                      None, None, None, None,
+                                                      None)
     # Act
-    acoustic_3d.setup_wavelet(trapezoid_wavelet, D_T)
+    elastic_3d._setup_wavelet(trapezoid_wavelet, D_T)
 
 
-def test_setup_data(variable_rec_locations, src_locations, vp_model_half_space):
+def test_setup_data(variable_rec_locations, src_locations, vp_vs_rho_model_3d):
   # Arrange
-  with patch.object(acoustic_isotropic.AcousticIsotropic3D, "make", mock_make):
-    acoustic_3d = acoustic_isotropic.AcousticIsotropic3D(
-        None, (D_Y, D_X, D_Z),
-        None,
-        None,
-        None,
-        None,
-        None,
-        model_padding=(N_Y_PAD, N_X_PAD, N_Z_PAD))
-    acoustic_3d.setup_model(vp_model_half_space)
-
-    acoustic_3d.setup_src_devices(src_locations, N_T)
-    acoustic_3d.setup_rec_devices(variable_rec_locations, N_T)
+  with patch.object(elastic_isotropic.ElasticIsotropic3D, "_make", mock_make):
+    elastic_3d = elastic_isotropic.ElasticIsotropic3D(None, (D_Y, D_X, D_Z),
+                                                      None, None, None, None,
+                                                      None)
+    elastic_3d._setup_model(vp_vs_rho_model_3d)
+    elastic_3d._setup_src_devices(src_locations, N_T)
+    elastic_3d._setup_rec_devices(variable_rec_locations, N_T)
 
     # Act
-    acoustic_3d.setup_data(N_T, D_T)
+    elastic_3d._setup_data(N_T, D_T)
 
     # Assert
-    assert acoustic_3d.data_sep.getNdArray().shape == (N_SRCS, N_REC * N_REC,
-                                                       N_T)
+    assert elastic_3d.data_sep.getNdArray().shape == (N_SRCS, N_WFLD_COMPONENTS,
+                                                      N_REC * N_REC, N_T)
 
 
 def test_setup_data_fails_if_no_src_or_rec(variable_rec_locations,
-                                           src_locations, vp_model_half_space):
+                                           src_locations, vp_vs_rho_model_3d):
   # Arrange
-  with patch.object(acoustic_isotropic.AcousticIsotropic3D, "make", mock_make):
-    acoustic_3d = acoustic_isotropic.AcousticIsotropic3D(
-        None, (D_Y, D_X, D_Z),
-        None,
-        None,
-        None,
-        None,
-        None,
-        model_padding=(N_Y_PAD, N_X_PAD, N_Z_PAD))
-    acoustic_3d.setup_model(vp_model_half_space)
+  with patch.object(elastic_isotropic.ElasticIsotropic3D, "_make", mock_make):
+    elastic_3d = elastic_isotropic.ElasticIsotropic3D(None, (D_Y, D_X, D_Z),
+                                                      None, None, None, None,
+                                                      None)
+    elastic_3d._setup_model(vp_vs_rho_model_3d)
 
     # Act and Assert
     with pytest.raises(RuntimeError):
-      acoustic_3d.setup_data(N_T, D_T)
+      elastic_3d._setup_data(N_T, D_T)
 
-    acoustic_3d.setup_src_devices(src_locations, N_T)
+    elastic_3d._setup_src_devices(src_locations, N_T)
+
+    # Act and Assert
     with pytest.raises(RuntimeError):
-      acoustic_3d.setup_data(N_T, D_T)
-
-    acoustic_3d.setup_rec_devices(variable_rec_locations, N_T)
-    acoustic_3d.setup_data(N_T, D_T)
+      elastic_3d._setup_data(N_T, D_T)
 
 
 def test_setup_rec_devices_variable_receivers(variable_rec_locations,
                                               src_locations,
-                                              vp_model_half_space):
+                                              vp_vs_rho_model_3d):
   # Arrange
-  with patch.object(acoustic_isotropic.AcousticIsotropic3D, "make", mock_make):
-    acoustic_3d = acoustic_isotropic.AcousticIsotropic3D(
-        None, (D_Y, D_X, D_Z),
-        None,
-        None,
-        None,
-        None,
-        None,
-        model_padding=(N_Y_PAD, N_X_PAD, N_Z_PAD))
-    acoustic_3d.setup_model(vp_model_half_space)
-
-    acoustic_3d.setup_src_devices(src_locations, N_T)
-
+  with patch.object(elastic_isotropic.ElasticIsotropic3D, "_make", mock_make):
+    elastic_3d = elastic_isotropic.ElasticIsotropic3D(None, (D_Y, D_X, D_Z),
+                                                      None, None, None, None,
+                                                      None)
+    elastic_3d._setup_model(vp_vs_rho_model_3d)
+    elastic_3d._setup_src_devices(src_locations, N_T)
     # Act
-    acoustic_3d.setup_rec_devices(variable_rec_locations, N_T)
+    elastic_3d._setup_rec_devices(variable_rec_locations, N_T)
 
     # Assert
-    assert len(acoustic_3d.rec_devices) == N_SRCS
+    assert len(elastic_3d.rec_devices) == 7
+    for rec_device_grid in elastic_3d.rec_devices:
+      assert len(rec_device_grid) == N_SRCS
 
 
 def test_setup_rec_devices_variable_receivers_nshot_mismatch(
-    variable_rec_locations, src_locations, vp_model_half_space):
+    variable_rec_locations, src_locations, vp_vs_rho_model_3d):
   # Arrange
-  with patch.object(acoustic_isotropic.AcousticIsotropic3D, "make", mock_make):
-    acoustic_3d = acoustic_isotropic.AcousticIsotropic3D(
-        None, (D_Y, D_X, D_Z),
-        None,
-        None,
-        None,
-        None,
-        None,
-        model_padding=(N_Y_PAD, N_X_PAD, N_Z_PAD))
-    acoustic_3d.setup_model(vp_model_half_space)
-
-    acoustic_3d.setup_src_devices(src_locations, N_T)
-
-    # Assert and Act
-    with pytest.raises(RuntimeError):
-      acoustic_3d.setup_rec_devices(variable_rec_locations[1:], N_T)
-
-
-def test_setup_rec_devices_fixed_receivers(fixed_rec_locations, src_locations,
-                                           vp_model_half_space):
-  # Arrange
-  with patch.object(acoustic_isotropic.AcousticIsotropic3D, "make", mock_make):
-    acoustic_3d = acoustic_isotropic.AcousticIsotropic3D(
-        None, (D_Y, D_X, D_Z),
-        None,
-        None,
-        None,
-        None,
-        None,
-        model_padding=(N_Y_PAD, N_X_PAD, N_Z_PAD))
-    acoustic_3d.setup_model(vp_model_half_space)
-
-    acoustic_3d.setup_src_devices(src_locations, N_T)
-
-    # Act
-    acoustic_3d.setup_rec_devices(fixed_rec_locations, N_T)
-
-    # Assert
-    assert len(acoustic_3d.rec_devices) == N_SRCS
-
-
-def test_setup_rec_devices_fails_if_no_src_locations(fixed_rec_locations,
-                                                     vp_model_half_space):
-  # Arrange
-  with patch.object(acoustic_isotropic.AcousticIsotropic3D, "make", mock_make):
-    acoustic_3d = acoustic_isotropic.AcousticIsotropic3D(
-        None, (D_Y, D_X, D_Z),
-        None,
-        None,
-        None,
-        None,
-        None,
-        model_padding=(N_Y_PAD, N_X_PAD, N_Z_PAD))
-    acoustic_3d.setup_model(vp_model_half_space)
+  with patch.object(elastic_isotropic.ElasticIsotropic3D, "_make", mock_make):
+    elastic_3d = elastic_isotropic.ElasticIsotropic3D(None, (D_Y, D_X, D_Z),
+                                                      None, None, None, None,
+                                                      None)
+    elastic_3d._setup_model(vp_vs_rho_model_3d)
+    elastic_3d._setup_src_devices(src_locations, N_T)
 
     # Act and Assert
     with pytest.raises(RuntimeError):
-      acoustic_3d.setup_rec_devices(fixed_rec_locations, N_T)
+      elastic_3d._setup_rec_devices(variable_rec_locations[1:], N_T)
+
+
+def test_setup_rec_devices_fixed_receivers(fixed_rec_locations, src_locations,
+                                           vp_vs_rho_model_3d):
+  # Arrange
+  with patch.object(elastic_isotropic.ElasticIsotropic3D, "_make", mock_make):
+    elastic_3d = elastic_isotropic.ElasticIsotropic3D(None, (D_Y, D_X, D_Z),
+                                                      None, None, None, None,
+                                                      None)
+    elastic_3d._setup_model(vp_vs_rho_model_3d)
+    elastic_3d._setup_src_devices(src_locations, N_T)
+
+    # Act
+    elastic_3d._setup_rec_devices(fixed_rec_locations, N_T)
+
+    # Assert
+    assert len(elastic_3d.rec_devices) == 7
+    for rec_device_grid in elastic_3d.rec_devices:
+      assert len(rec_device_grid) == 1
+    assert elastic_3d.fd_param['n_src'] == N_SRCS
+    assert elastic_3d.fd_param['n_rec'] == N_REC * N_REC
+
+
+def test_setup_rec_devices_fails_if_no_src_locations(fixed_rec_locations,
+                                                     vp_vs_rho_model_3d):
+  # Arrange
+  with patch.object(elastic_isotropic.ElasticIsotropic3D, "_make", mock_make):
+    elastic_3d = elastic_isotropic.ElasticIsotropic3D(None, (D_Y, D_X, D_Z),
+                                                      None, None, None, None,
+                                                      None)
+    elastic_3d._setup_model(vp_vs_rho_model_3d)
+
+    # Act and Assert
+    with pytest.raises(RuntimeError):
+      elastic_3d._setup_rec_devices(fixed_rec_locations, N_T)
 
 
 def test_setup_rec_devices_fails_if_no_model(fixed_rec_locations):
   # Arrange
-  with patch.object(acoustic_isotropic.AcousticIsotropic3D, "make", mock_make):
-    acoustic_3d = acoustic_isotropic.AcousticIsotropic3D(
-        None, (D_Y, D_X, D_Z),
-        None,
-        None,
-        None,
-        None,
-        None,
-        model_padding=(N_Y_PAD, N_X_PAD, N_Z_PAD))
+  with patch.object(elastic_isotropic.ElasticIsotropic3D, "_make", mock_make):
+    elastic_3d = elastic_isotropic.ElasticIsotropic3D(None, (D_Y, D_X, D_Z),
+                                                      None, None, None, None,
+                                                      None)
 
     # Act and Assert
     with pytest.raises(RuntimeError):
-      acoustic_3d.setup_rec_devices(fixed_rec_locations, N_T)
+      elastic_3d._setup_rec_devices(fixed_rec_locations, N_T)
 
 
-def test_setup_src_devices(src_locations, vp_model_half_space):
+def test_setup_src_devices(src_locations, vp_vs_rho_model_3d):
   # Arrange
-  with patch.object(acoustic_isotropic.AcousticIsotropic3D, "make", mock_make):
-    acoustic_3d = acoustic_isotropic.AcousticIsotropic3D(
-        None, (D_Y, D_X, D_Z),
-        None,
-        None,
-        None,
-        None,
-        None,
-        model_padding=(N_Y_PAD, N_X_PAD, N_Z_PAD))
-    acoustic_3d.setup_model(vp_model_half_space)
+  with patch.object(elastic_isotropic.ElasticIsotropic3D, "_make", mock_make):
+    elastic_3d = elastic_isotropic.ElasticIsotropic3D(None, (D_Y, D_X, D_Z),
+                                                      None, None, None, None,
+                                                      None)
+    elastic_3d._setup_model(vp_vs_rho_model_3d)
 
     # Act
-    acoustic_3d.setup_src_devices(src_locations, N_T)
+    elastic_3d._setup_src_devices(src_locations, N_T)
 
     # Assert
-    assert len(acoustic_3d.src_devices) == N_SRCS
+    assert len(elastic_3d.src_devices) == 7
+    for src_device_grid in elastic_3d.src_devices:
+      assert len(src_device_grid) == N_SRCS
 
 
 def test_setup_src_devices_fails_if_no_model(src_locations):
   # Arrange
-  with patch.object(acoustic_isotropic.AcousticIsotropic3D, "make", mock_make):
-    acoustic_3d = acoustic_isotropic.AcousticIsotropic3D(
-        None, (D_Y, D_X, D_Z),
-        None,
-        None,
-        None,
-        None,
-        None,
-        model_padding=(N_Y_PAD, N_X_PAD, N_Z_PAD))
-
+  with patch.object(elastic_isotropic.ElasticIsotropic3D, "_make", mock_make):
+    elastic_3d = elastic_isotropic.ElasticIsotropic3D(None, (D_Y, D_X, D_Z),
+                                                      None, None, None, None,
+                                                      None)
     # Act and Assert
     with pytest.raises(RuntimeError):
-      acoustic_3d.setup_src_devices(src_locations, N_T)
+      elastic_3d._setup_src_devices(src_locations, N_T)
 
 
-def test_setup_model(vp_model_half_space):
+def test_setup_model_default_padding(vp_vs_rho_model_3d):
   # Arrange
-  with patch.object(acoustic_isotropic.AcousticIsotropic3D, "make", mock_make):
-    acoustic_3d = acoustic_isotropic.AcousticIsotropic3D(
-        None, (D_Y, D_X, D_Z),
-        None,
-        None,
-        None,
-        None,
-        None,
-        model_padding=(N_Y_PAD, N_X_PAD, N_Z_PAD))
-
+  with patch.object(elastic_isotropic.ElasticIsotropic3D, "_make", mock_make):
+    elastic_3d = elastic_isotropic.ElasticIsotropic3D(None, (D_Y, D_X, D_Z),
+                                                      None, None, None, None,
+                                                      None)
     # Act
-    acoustic_3d.setup_model(vp_model_half_space)
+    elastic_3d._setup_model(vp_vs_rho_model_3d)
 
     # Assert
-    assert (acoustic_3d.fd_param['n_x'] -
-            2 * acoustic_3d.fat) % acoustic_3d.block_size == 0
-    assert (acoustic_3d.fd_param['n_z'] -
-            2 * acoustic_3d.fat) % acoustic_3d.block_size == 0
-    assert acoustic_3d.fd_param['d_y'] == D_Y
-    assert acoustic_3d.fd_param['d_x'] == D_X
-    assert acoustic_3d.fd_param['d_z'] == D_Z
-    assert acoustic_3d.fd_param['y_pad'] == N_Y_PAD
-    assert acoustic_3d.fd_param['x_pad_minus'] == N_X_PAD
-    assert acoustic_3d.fd_param['x_pad_plus'] == acoustic_3d.fd_param['n_x'] - (
-        N_X + N_X_PAD + 2 * acoustic_3d.fat)
-    assert acoustic_3d.fd_param['z_pad_minus'] == N_Z_PAD
-    assert acoustic_3d.fd_param['z_pad_plus'] == acoustic_3d.fd_param['n_z'] - (
-        N_Z + N_Z_PAD + 2 * acoustic_3d.fat)
+    default_padding = 30
+    assert elastic_3d.fd_param[
+        'n_y'] == 2 * default_padding + 2 * elastic_3d._FAT + N_Y
+    assert (elastic_3d.fd_param['n_x'] -
+            2 * elastic_3d._FAT) % elastic_3d._BLOCK_SIZE == 0
+    assert (elastic_3d.fd_param['n_z'] -
+            2 * elastic_3d._FAT) % elastic_3d._BLOCK_SIZE == 0
+    assert elastic_3d.fd_param['d_y'] == D_Y
+    assert elastic_3d.fd_param['d_x'] == D_X
+    assert elastic_3d.fd_param['d_z'] == D_Z
+    assert elastic_3d.fd_param['y_pad'] == default_padding
+    assert elastic_3d.fd_param['x_pad_minus'] == default_padding
+    assert elastic_3d.fd_param['x_pad_plus'] == elastic_3d.fd_param['n_x'] - (
+        N_X + default_padding + 2 * elastic_3d._FAT)
+    assert elastic_3d.fd_param['z_pad_minus'] == default_padding
+    assert elastic_3d.fd_param['z_pad_plus'] == elastic_3d.fd_param['n_z'] - (
+        N_Z + default_padding + 2 * elastic_3d._FAT)
 
     #check model gets set
-    start_y = acoustic_3d.fat + N_Y_PAD
+    start_y = elastic_3d._FAT + default_padding
     end_y = start_y + N_Y
-    start_x = acoustic_3d.fat + N_X_PAD
+    start_x = elastic_3d._FAT + default_padding
     end_x = start_x + N_X
-    start_z = acoustic_3d.fat + N_Z_PAD
+    start_z = elastic_3d._FAT + default_padding
     end_z = start_z + N_Z
+
+    # check that model was converted to lame paramters
+    lame_model_3d = elastic_isotropic.convert_to_lame(vp_vs_rho_model_3d)
     assert np.allclose(
-        acoustic_3d.model_sep.getNdArray()[start_y:end_y, start_x:end_x,
-                                           start_z:end_z], vp_model_half_space)
+        elastic_3d.model_sep.getNdArray()[:, start_y:end_y, start_x:end_x,
+                                          start_z:end_z], lame_model_3d)
 
 
-def test_pad_model(vp_model_half_space):
+def test_setup_model(vp_vs_rho_model_3d):
   # Arrange
-  with patch.object(acoustic_isotropic.AcousticIsotropic3D, "make", mock_make):
-    acoustic_3d = acoustic_isotropic.AcousticIsotropic3D(
-        None, None, None, None, None, None, None)
-
+  with patch.object(elastic_isotropic.ElasticIsotropic3D, "_make", mock_make):
+    elastic_3d = elastic_isotropic.ElasticIsotropic3D(None, (D_Y, D_X, D_Z),
+                                                      None,
+                                                      None,
+                                                      None,
+                                                      None,
+                                                      None,
+                                                      model_padding=(N_Y_PAD,
+                                                                     N_X_PAD,
+                                                                     N_Z_PAD))
     # Act
-    model, y_pad, y_pad_plus, new_o_y, x_pad, x_pad_plus, new_o_x, z_pad, z_pad_plus, new_o_z = acoustic_3d.pad_model(
-        vp_model_half_space, (D_Y, D_X, D_Z), (N_Y_PAD, N_X_PAD, N_Z_PAD))
+    elastic_3d._setup_model(vp_vs_rho_model_3d)
 
     # Assert
-    assert (model.shape[1] - 2 * acoustic_3d.fat) % acoustic_3d.block_size == 0
-    assert (model.shape[2] - 2 * acoustic_3d.fat) % acoustic_3d.block_size == 0
-    assert y_pad == N_Y_PAD
-    assert y_pad_plus == model.shape[0] - (N_Y + N_Y_PAD + 2 * acoustic_3d.fat)
-    assert x_pad == N_X_PAD
-    assert x_pad_plus == model.shape[1] - (N_X + N_X_PAD + 2 * acoustic_3d.fat)
-    assert z_pad == N_Z_PAD
-    assert z_pad_plus == model.shape[2] - (N_Z + N_Z_PAD + 2 * acoustic_3d.fat)
+    assert elastic_3d.fd_param['n_y'] == 2 * N_Y_PAD + 2 * elastic_3d._FAT + N_Y
+    assert (elastic_3d.fd_param['n_x'] -
+            2 * elastic_3d._FAT) % elastic_3d._BLOCK_SIZE == 0
+    assert (elastic_3d.fd_param['n_z'] -
+            2 * elastic_3d._FAT) % elastic_3d._BLOCK_SIZE == 0
+    assert elastic_3d.fd_param['d_y'] == D_Y
+    assert elastic_3d.fd_param['d_x'] == D_X
+    assert elastic_3d.fd_param['d_z'] == D_Z
+    assert elastic_3d.fd_param['y_pad'] == N_Y_PAD
+    assert elastic_3d.fd_param['x_pad_minus'] == N_X_PAD
+    assert elastic_3d.fd_param['x_pad_plus'] == elastic_3d.fd_param['n_x'] - (
+        N_X + N_X_PAD + 2 * elastic_3d._FAT)
+    assert elastic_3d.fd_param['z_pad_minus'] == N_Z_PAD
+    assert elastic_3d.fd_param['z_pad_plus'] == elastic_3d.fd_param['n_z'] - (
+        N_Z + N_Z_PAD + 2 * elastic_3d._FAT)
 
     #check model gets set
-    start_y = acoustic_3d.fat + N_Y_PAD
+    start_y = elastic_3d._FAT + N_Y_PAD
     end_y = start_y + N_Y
-    start_x = acoustic_3d.fat + N_X_PAD
+    start_x = elastic_3d._FAT + N_X_PAD
     end_x = start_x + N_X
-    start_z = acoustic_3d.fat + N_Z_PAD
+    start_z = elastic_3d._FAT + N_Z_PAD
     end_z = start_z + N_Z
-    assert np.allclose(model[start_y:end_y, start_x:end_x, start_z:end_z],
-                       vp_model_half_space)
+
+    # check that model was converted to lame paramters
+    lame_model_3d = elastic_isotropic.convert_to_lame(vp_vs_rho_model_3d)
+    assert np.allclose(
+        elastic_3d.model_sep.getNdArray()[:, start_y:end_y, start_x:end_x,
+                                          start_z:end_z], lame_model_3d)
+
+
+def test_pad_model(vp_vs_rho_model_3d):
+  # Arrange
+  with patch.object(elastic_isotropic.ElasticIsotropic3D, "_make", mock_make):
+    elastic_3d = elastic_isotropic.ElasticIsotropic3D(None, None, None, None,
+                                                      None, None, None, None,
+                                                      None)
+
+    # Act
+    model, y_pad, y_pad_plus, new_o_y, x_pad, x_pad_plus, new_o_x, z_pad, z_pad_plus, new_o_z = elastic_3d._pad_model(
+        vp_vs_rho_model_3d, (D_Y, D_X, D_Z), (N_Y_PAD, N_X_PAD, N_Z_PAD))
+
+    # Assert
+    assert (model.shape[2] - 2 * elastic_3d._FAT) % elastic_3d._BLOCK_SIZE == 0
+    assert (model.shape[3] - 2 * elastic_3d._FAT) % elastic_3d._BLOCK_SIZE == 0
+    assert y_pad == N_Y_PAD
+    assert y_pad_plus == N_Y_PAD
+    assert x_pad == N_X_PAD
+    assert x_pad_plus == model.shape[2] - (N_X + N_X_PAD + 2 * elastic_3d._FAT)
+    assert z_pad == N_Z_PAD
+    assert z_pad_plus == model.shape[3] - (N_Z + N_Z_PAD + 2 * elastic_3d._FAT)
+
+    #check model gets set
+    start_y = elastic_3d._FAT + N_Y_PAD
+    end_y = start_y + N_Y
+    start_x = elastic_3d._FAT + N_X_PAD
+    end_x = start_x + N_X
+    start_z = elastic_3d._FAT + N_Z_PAD
+    end_z = start_z + N_Z
+    assert np.allclose(model[:, start_y:end_y, start_x:end_x, start_z:end_z],
+                       vp_vs_rho_model_3d)

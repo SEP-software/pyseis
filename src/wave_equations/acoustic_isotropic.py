@@ -31,35 +31,35 @@ from pyAcoustic_iso_float_nl import deviceGpu as device_gpu_2d
 from pyAcoustic_iso_float_nl import nonlinearPropShotsGpu, ostream_redirect
 # 3d pybind11 modules
 from pyAcoustic_iso_float_nl_3D import deviceGpu_3D as device_gpu_3d
-from pyAcoustic_iso_float_nl_3D import nonlinearPropShotsGpu_3D 
+from pyAcoustic_iso_float_nl_3D import nonlinearPropShotsGpu_3D
 
 
 class AcousticIsotropic(wave_equation.WaveEquation):
-  block_size = 16
-  fat = 5
+  _BLOCK_SIZE = 16
+  _FAT = 5
 
   def __init__(self):
     super().__init__()
 
-  def make(self, model, wavelet, d_t, src_locations, rec_locations, gpus):
+  def _make(self, model, wavelet, d_t, src_locations, rec_locations, gpus):
     # pads model, makes self.model_sep, and updates self.fd_param
-    self.setup_model(model)
+    self._setup_model(model)
 
     # make and set wavelet
-    self.setup_wavelet(wavelet, d_t)
+    self._setup_wavelet(wavelet, d_t)
     n_t = wavelet.shape[-1]
 
     # make and set source devices
-    self.setup_src_devices(src_locations, n_t)
+    self._setup_src_devices(src_locations, n_t)
 
     # make and set rec devices
-    self.setup_rec_devices(rec_locations, n_t)
+    self._setup_rec_devices(rec_locations, n_t)
 
     # make and set data space
-    self.setup_data(n_t, d_t)
+    self._setup_data(n_t, d_t)
 
     # calculate and find subsampling
-    self.setup_subsampling(model, d_t, self.model_sampling)
+    self._setup_subsampling(model, d_t, self.model_sampling)
 
     # set gpus list
     self.fd_param['gpus'] = str(gpus)[1:-1]
@@ -68,15 +68,15 @@ class AcousticIsotropic(wave_equation.WaveEquation):
     self.fd_param['ginsu'] = 0
 
     # make and set sep par
-    self.setup_sep_par(self.fd_param)
+    self._setup_sep_par(self.fd_param)
 
     # make and set gpu operator
-    self.setup_wave_prop_operator(self.data_sep, self.model_sep, self.sep_param,
-                                  self.src_devices, self.rec_devices,
-                                  self.wavelet_sep)
+    self._setup_wave_prop_operator(self.data_sep, self.model_sep,
+                                   self.sep_param, self.src_devices,
+                                   self.rec_devices, self.wavelet_sep)
 
-  def setup_subsampling(self, model, d_t, model_sampling):
-    sub = self.calc_subsampling(model, d_t, model_sampling)
+  def _setup_subsampling(self, model, d_t, model_sampling):
+    sub = self._calc_subsampling(model, d_t, model_sampling)
     if 'sub' in self.fd_param:
       if sub > self.fd_param['sub']:
         raise RuntimeError(
@@ -84,7 +84,7 @@ class AcousticIsotropic(wave_equation.WaveEquation):
         )
     self.fd_param['sub'] = sub
 
-  def calc_subsampling(self, model, d_t, model_sampling):
+  def _calc_subsampling(self, model, d_t, model_sampling):
     """Find time downsampling needed during propagation to remain stable.
 
     Args:
@@ -125,10 +125,10 @@ class AcousticIsotropic2D(AcousticIsotropic):
     self.model_sampling = model_sampling
     self.model_padding = model_padding
     self.model_origins = model_origins
-    self.make(model, wavelet, d_t, src_locations, rec_locations, gpus)
+    self._make(model, wavelet, d_t, src_locations, rec_locations, gpus)
 
-  def setup_model(self, model):
-    model, x_pad, x_pad_plus, new_o_x, z_pad, z_pad_plus, new_o_z = self.pad_model(
+  def _setup_model(self, model):
+    model, x_pad, x_pad_plus, new_o_x, z_pad, z_pad_plus, new_o_z = self._pad_model(
         model, self.model_sampling, self.model_padding, self.model_origins)
     self.model = model
     self.model_sep = SepVector.getSepVector(
@@ -148,7 +148,11 @@ class AcousticIsotropic2D(AcousticIsotropic):
     self.fd_param['z_pad_minus'] = z_pad
     self.fd_param['z_pad_plus'] = z_pad_plus
 
-  def pad_model(self, model, model_sampling, model_padding, model_origins=None):
+  def _pad_model(self,
+                 model,
+                 model_sampling,
+                 model_padding,
+                 model_origins=None):
     """Pad 2d model.
 
     Finds the correct padding on either end of the axis so both directions are
@@ -177,29 +181,29 @@ class AcousticIsotropic2D(AcousticIsotropic):
 
     # Compute size of z_pad_plus
     n_z_total = z_pad * 2 + n_z
-    ratio_z = n_z_total / self.block_size
+    ratio_z = n_z_total / self._BLOCK_SIZE
     nb_blockz = ceil(ratio_z)
-    z_pad_plus = nb_blockz * self.block_size - n_z - z_pad
+    z_pad_plus = nb_blockz * self._BLOCK_SIZE - n_z - z_pad
 
     # Compute sixe of x_pad_plus
     n_x_total = x_pad * 2 + n_x
-    ratio_x = n_x_total / self.block_size
+    ratio_x = n_x_total / self._BLOCK_SIZE
     nb_blockx = ceil(ratio_x)
-    x_pad_plus = nb_blockx * self.block_size - n_x - x_pad
+    x_pad_plus = nb_blockx * self._BLOCK_SIZE - n_x - x_pad
 
     # pad
     model = np.pad(np.pad(model, ((x_pad, x_pad_plus), (z_pad, z_pad_plus)),
                           mode='edge'),
-                   ((self.fat, self.fat), (self.fat, self.fat)),
+                   ((self._FAT, self._FAT), (self._FAT, self._FAT)),
                    mode='constant')
 
     # Compute new origins
-    new_o_x = model_origins[0] - (self.fat + x_pad) * d_x
-    new_o_z = model_origins[1] - (self.fat + z_pad) * d_z
+    new_o_x = model_origins[0] - (self._FAT + x_pad) * d_x
+    new_o_z = model_origins[1] - (self._FAT + z_pad) * d_z
 
     return model, x_pad, x_pad_plus, new_o_x, z_pad, z_pad_plus, new_o_z
 
-  def setup_src_devices(self, src_locations, n_t):
+  def _setup_src_devices(self, src_locations, n_t):
     """
     src_locations - [n_src,(x_pos,z_pos)]
     """
@@ -222,7 +226,7 @@ class AcousticIsotropic2D(AcousticIsotropic):
     self.fd_param['n_src'] = len(source_devices)
     self.src_devices = source_devices
 
-  def setup_rec_devices(self, rec_locations, n_t):
+  def _setup_rec_devices(self, rec_locations, n_t):
     """
     src_locations - [n_rec,(x_pos,z_pos)] OR [n_src,n_rec,(x_pos,z_pos)]
     """
@@ -260,7 +264,7 @@ class AcousticIsotropic2D(AcousticIsotropic):
     self.fd_param['n_rec'] = n_rec
     self.rec_devices = rec_devices
 
-  def setup_data(self, n_t, d_t):
+  def _setup_data(self, n_t, d_t):
     if 'n_src' not in self.fd_param:
       raise RuntimeError(
           'self.fd_param[\'n_src\'] must be set to set setup_data')
@@ -277,7 +281,7 @@ class AcousticIsotropic2D(AcousticIsotropic):
 
     self.data_sep = data_sep
 
-  def make_sep_wavelet(self, wavelet, d_t):
+  def _make_sep_wavelet(self, wavelet, d_t):
     n_t = wavelet.shape[-1]
     wavelet_sep = SepVector.getSepVector(
         Hypercube.hypercube(axes=[
@@ -315,11 +319,11 @@ class AcousticIsotropic3D(AcousticIsotropic):
     self.model_sampling = model_sampling
     self.model_padding = model_padding
     self.model_origins = model_origins
-    self.make(model, wavelet, d_t, src_locations, rec_locations, gpus)
+    self._make(model, wavelet, d_t, src_locations, rec_locations, gpus)
 
-  def setup_model(self, model):
+  def _setup_model(self, model):
 
-    model, y_pad, y_pad_plus, new_o_y, x_pad, x_pad_plus, new_o_x, z_pad, z_pad_plus, new_o_z = self.pad_model(
+    model, y_pad, y_pad_plus, new_o_y, x_pad, x_pad_plus, new_o_x, z_pad, z_pad_plus, new_o_z = self._pad_model(
         model, self.model_sampling, self.model_padding, self.model_origins)
     self.model = model
     self.model_sep = SepVector.getSepVector(
@@ -344,7 +348,11 @@ class AcousticIsotropic3D(AcousticIsotropic):
     self.fd_param['z_pad_minus'] = z_pad
     self.fd_param['z_pad_plus'] = z_pad_plus
 
-  def pad_model(self, model, model_sampling, model_padding, model_origins=None):
+  def _pad_model(self,
+                 model,
+                 model_sampling,
+                 model_padding,
+                 model_origins=None):
     """Pad 3d model.
 
     Finds the correct padding on either end of the axis so both directions are
@@ -372,15 +380,15 @@ class AcousticIsotropic3D(AcousticIsotropic):
 
     # Compute size of z_pad_plus
     n_z_total = z_pad * 2 + n_z
-    ratio_z = n_z_total / self.block_size
+    ratio_z = n_z_total / self._BLOCK_SIZE
     nb_blockz = ceil(ratio_z)
-    z_pad_plus = nb_blockz * self.block_size - n_z - z_pad
+    z_pad_plus = nb_blockz * self._BLOCK_SIZE - n_z - z_pad
 
     # Compute sixe of x_pad_plus
     n_x_total = x_pad * 2 + n_x
-    ratio_x = n_x_total / self.block_size
+    ratio_x = n_x_total / self._BLOCK_SIZE
     nb_blockx = ceil(ratio_x)
-    x_pad_plus = nb_blockx * self.block_size - n_x - x_pad
+    x_pad_plus = nb_blockx * self._BLOCK_SIZE - n_x - x_pad
 
     # compute y axis padding
     y_pad_plus = y_pad
@@ -389,18 +397,18 @@ class AcousticIsotropic3D(AcousticIsotropic):
     model = np.pad(np.pad(model, ((y_pad, y_pad_plus), (x_pad, x_pad_plus),
                                   (z_pad, z_pad_plus)),
                           mode='edge'),
-                   ((self.fat, self.fat), (self.fat, self.fat),
-                    (self.fat, self.fat)),
+                   ((self._FAT, self._FAT), (self._FAT, self._FAT),
+                    (self._FAT, self._FAT)),
                    mode='constant')
 
     # Compute new origins
-    new_o_y = model_origins[0] - (self.fat + y_pad) * d_y
-    new_o_x = model_origins[1] - (self.fat + x_pad) * d_x
-    new_o_z = model_origins[2] - (self.fat + z_pad) * d_z
+    new_o_y = model_origins[0] - (self._FAT + y_pad) * d_y
+    new_o_x = model_origins[1] - (self._FAT + x_pad) * d_x
+    new_o_z = model_origins[2] - (self._FAT + z_pad) * d_z
 
     return model, y_pad, y_pad_plus, new_o_y, x_pad, x_pad_plus, new_o_x, z_pad, z_pad_plus, new_o_z
 
-  def setup_src_devices(self, src_locations, n_t):
+  def _setup_src_devices(self, src_locations, n_t):
     """
     src_locations - [n_src,(x_pos,z_pos)]
     """
@@ -410,8 +418,8 @@ class AcousticIsotropic3D(AcousticIsotropic):
     if 'n_src' in self.fd_param:
       assert self.fd_param['n_src'] == len(src_locations)
 
-    sep_par = self.make_sep_par({
-        'fat': self.fd_param['fat'],
+    sep_par = self._make_sep_par({
+        'fat': self.fd_param['_FAT'],
         'zPadMinus': self.fd_param['z_pad_minus'],
         'zPadPlus': self.fd_param['z_pad_plus'],
         'xPadMinus': self.fd_param['x_pad_minus'],
@@ -436,7 +444,7 @@ class AcousticIsotropic3D(AcousticIsotropic):
     self.fd_param['n_src'] = len(source_devices)
     self.src_devices = source_devices
 
-  def setup_rec_devices(self, rec_locations, n_t):
+  def _setup_rec_devices(self, rec_locations, n_t):
     """
     src_locations - [n_rec,(y_pos,x_pos,z_pos)] OR [n_shot,n_rec,(y_pos,x_pos,z_pos)]
     """
@@ -469,8 +477,8 @@ class AcousticIsotropic3D(AcousticIsotropic):
       x_coord_sep.getNdArray()[:] = rec_location[:, 1]
       z_coord_sep = SepVector.getSepVector(ns=[n_rec])
       z_coord_sep.getNdArray()[:] = rec_location[:, 2]
-      sep_par = self.make_sep_par({
-          'fat': self.fd_param['fat'],
+      sep_par = self._make_sep_par({
+          'fat': self.fd_param['_FAT'],
           'zPadMinus': self.fd_param['z_pad_minus'],
           'zPadPlus': self.fd_param['z_pad_plus'],
           'xPadMinus': self.fd_param['x_pad_minus'],
@@ -485,7 +493,7 @@ class AcousticIsotropic3D(AcousticIsotropic):
     self.fd_param['n_rec'] = n_rec
     self.rec_devices = rec_devices
 
-  def setup_data(self, n_t, d_t):
+  def _setup_data(self, n_t, d_t):
     if 'n_src' not in self.fd_param:
       raise RuntimeError(
           'self.fd_param[\'n_shots\'] must be set to set setup_data')
@@ -502,7 +510,7 @@ class AcousticIsotropic3D(AcousticIsotropic):
 
     self.data_sep = data_sep
 
-  def make_sep_wavelet(self, wavelet, d_t):
+  def _make_sep_wavelet(self, wavelet, d_t):
     n_t = wavelet.shape[-1]
     wavelet_sep = SepVector.getSepVector(
         Hypercube.hypercube(
