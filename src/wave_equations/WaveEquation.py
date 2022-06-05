@@ -4,6 +4,7 @@ from math import ceil
 import genericIO
 import pyOperator as Operator
 from pyElastic_iso_float_nl_3D import ostream_redirect
+import wavelets.Wavelet as Wavelet
 
 SEP_PARAM_CYPHER = {
     'ny': 'n_y',
@@ -39,12 +40,20 @@ class WaveEquation(abc.ABC, Operator.Operator):
     self.model_sep = None
     self.fd_param = {'block_size': self.block_size, 'fat': self.fat}
 
+  def fwd(self, model):
+    self.setup_model(model)
+    self.wave_prop_cpp_op.forward(0, self.model_sep, self.data_sep)
+    return self.data_sep.getNdArray()
+
+  def forward(self, add, model_sep, data_sep):
+    with self.ostream_redirect():
+      self.wave_prop_cpp_op.forward(0, model_sep, data_sep)
+
   def setup_wavelet(self, wavelet, d_t):
-    wavelet = self.wavelet_module(wavelet, d_t)
-    self.wavelet_sep = wavelet.get_sep()
     self.fd_param['d_t'] = d_t
-    self.fd_param['n_t'] = wavelet.n_t
-    self.fd_param['f_max'] = wavelet.f_max
+    self.fd_param['n_t'] = wavelet.shape[-1]
+    self.fd_param['f_max'] = Wavelet.calc_max_freq(wavelet, d_t)
+    self.wavelet_sep = self.make_sep_wavelet(wavelet, d_t)
 
   def setup_sep_par(self, fd_param):
     sep_param_dict = {}
@@ -81,14 +90,9 @@ class WaveEquation(abc.ABC, Operator.Operator):
                                                         wavelet_sep)
     self.setDomainRange(model_sep, data_sep)
 
-  def fwd(self, model):
-    self.setup_model(model)
-    self.wave_prop_cpp_op.forward(0, self.model_sep, self.data_sep)
-    return self.data_sep.getNdArray()
-
-  def forward(self, add, model_sep, data_sep):
-    with self.ostream_redirect():
-      self.wave_prop_cpp_op.forward(0, model_sep, data_sep)
+  @abc.abstractmethod
+  def make_sep_wavelet(self, wavelet, d_t):
+    pass
 
   @abc.abstractmethod
   def calc_subsampling(self, model, d_t, model_sampling):

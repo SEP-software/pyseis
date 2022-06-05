@@ -4,7 +4,6 @@ import Hypercube, SepVector
 from pyAcoustic_iso_float_nl import deviceGpu as device_gpu
 from pyAcoustic_iso_float_nl import nonlinearPropShotsGpu, ostream_redirect
 from wave_equations.acoustic.AcousticIsotropic import AcousticIsotropic
-from wavelets.acoustic import Acoustic2D
 from wave_equations.WaveEquation import _WavePropCppOp
 
 
@@ -26,7 +25,6 @@ class AcousticIsotropic2D(AcousticIsotropic):
         'zPadPlus', 'dts', 'nts', 'fMax', 'sub', 'nShot', 'iGpu', 'blockSize',
         'fat'
     ]
-    self.wavelet_module = Acoustic2D.Acoustic2D
     self.wave_prop_cpp_op_class = _Aco2dWavePropCppOp
     self.ostream_redirect = ostream_redirect
 
@@ -184,6 +182,18 @@ class AcousticIsotropic2D(AcousticIsotropic):
         ]))
 
     self.data_sep = data_sep
+
+  def make_sep_wavelet(self, wavelet, d_t):
+    n_t = wavelet.shape[-1]
+    wavelet_sep = SepVector.getSepVector(
+        Hypercube.hypercube(axes=[
+            Hypercube.axis(n=n_t, o=0.0, d=d_t),
+            Hypercube.axis(n=1),
+            Hypercube.axis(n=1)
+        ]))
+    wavelet_sep.getNdArray()[:] = wavelet
+
+    return wavelet_sep
 
 
 class _Aco2dWavePropCppOp(_WavePropCppOp):

@@ -4,7 +4,6 @@ import Hypercube, SepVector
 from pyElastic_iso_float_nl import spaceInterpGpu as device_gpu
 from pyElastic_iso_float_nl import nonlinearPropElasticShotsGpu, ostream_redirect
 from wave_equations.elastic.ElasticIsotropic import ElasticIsotropic, convert_to_lame, convert_to_vel
-from wavelets.elastic.Elastic2D import Elastic2D
 from wave_equations.WaveEquation import _WavePropCppOp
 import pyOperator as Operator
 from dataCompModule import ElasticDatComp as _ElasticDatComp
@@ -33,7 +32,6 @@ class ElasticIsotropic2D(ElasticIsotropic):
                    'sxz',
                ]):
     super().__init__()
-    self.wavelet_module = Elastic2D
     self.wave_prop_cpp_op_class = _Ela2dWavePropCppOp
     self.required_sep_params = [
         'nx', 'dx', 'nz', 'dz', 'xPadMinus', 'xPadPlus', 'zPadMinus',
@@ -225,6 +223,19 @@ class ElasticIsotropic2D(ElasticIsotropic):
         ]))
 
     self.data_sep = data_sep
+
+  def make_sep_wavelet(self, wavelet, d_t):
+    n_t = wavelet.shape[-1]
+    wavelet_sep = SepVector.getSepVector(
+        Hypercube.hypercube(axes=[
+            Hypercube.axis(n=n_t, o=0.0, d=d_t),
+            Hypercube.axis(n=1),
+            Hypercube.axis(n=self.N_WFLD_COMPONENTS),
+            Hypercube.axis(n=1)
+        ]))
+    wavelet_sep.getNdArray()[0, :, 0, :] = wavelet
+
+    return wavelet_sep
 
   def make_staggered_grid_hypers(self, n_x, n_z, o_x, o_z, d_x, d_z):
     z_axis = Hypercube.axis(n=n_z, o=o_z, d=d_z)

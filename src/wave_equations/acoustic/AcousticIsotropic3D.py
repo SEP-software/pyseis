@@ -2,7 +2,6 @@ from math import ceil
 import numpy as np
 import Hypercube, SepVector
 from wave_equations.acoustic.AcousticIsotropic import AcousticIsotropic
-from wavelets.acoustic import Acoustic3D
 from pyAcoustic_iso_float_nl_3D import deviceGpu_3D as device_gpu
 from pyAcoustic_iso_float_nl_3D import nonlinearPropShotsGpu_3D, ostream_redirect
 from wave_equations.WaveEquation import _WavePropCppOp
@@ -27,7 +26,6 @@ class AcousticIsotropic3D(AcousticIsotropic):
         'zPadMinus', 'zPadPlus', 'yPad', 'dts', 'nts', 'fMax', 'sub', 'nShot',
         'iGpu', 'blockSize', 'fat', 'ginsu'
     ]
-    self.wavelet_module = Acoustic3D.Acoustic3D
     self.wave_prop_cpp_op_class = _Aco3dWavePropCppOp
     self.ostream_redirect = ostream_redirect
 
@@ -220,6 +218,16 @@ class AcousticIsotropic3D(AcousticIsotropic):
         ]))
 
     self.data_sep = data_sep
+
+  def make_sep_wavelet(self, wavelet, d_t):
+    n_t = wavelet.shape[-1]
+    wavelet_sep = SepVector.getSepVector(
+        Hypercube.hypercube(
+            axes=[Hypercube.axis(n=n_t, o=0.0, d=d_t),
+                  Hypercube.axis(n=1)]))
+    wavelet_sep.getNdArray()[:] = wavelet
+
+    return wavelet_sep
 
 
 class _Aco3dWavePropCppOp(_WavePropCppOp):
