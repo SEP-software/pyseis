@@ -28,7 +28,7 @@ class AcousticIsotropic(WaveEquation):
     self.setup_data(n_t, d_t)
 
     # calculate and find subsampling
-    self.set_subsampling(model, d_t, self.model_sampling)
+    self.setup_subsampling(model, d_t, self.model_sampling)
 
     # set gpus list
     self.fd_param['gpus'] = str(gpus)[1:-1]
@@ -44,7 +44,7 @@ class AcousticIsotropic(WaveEquation):
                                   self.src_devices, self.rec_devices,
                                   self.wavelet_sep)
 
-  def set_subsampling(self, model, d_t, model_sampling):
+  def setup_subsampling(self, model, d_t, model_sampling):
     sub = self.calc_subsampling(model, d_t, model_sampling)
     if 'sub' in self.fd_param:
       if sub > self.fd_param['sub']:

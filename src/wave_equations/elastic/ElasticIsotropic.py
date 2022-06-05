@@ -70,19 +70,18 @@ class ElasticIsotropic(WaveEquation):
 
     # make and set wavelet
     self.setup_wavelet(wavelet, d_t)
-    n_t = wavelet.shape[-1]
 
     # make and set source devices
-    self.setup_src_devices(src_locations, n_t)
+    self.setup_src_devices(src_locations, self.fd_param['n_t'])
 
     # make and set rec devices
-    self.setup_rec_devices(rec_locations, n_t)
+    self.setup_rec_devices(rec_locations, self.fd_param['n_t'])
 
     # make and set data space
-    self.setup_data(n_t, d_t)
+    self.setup_data(self.fd_param['n_t'], d_t)
 
     # calculate and find subsampling
-    self.set_subsampling(model, d_t, self.model_sampling, lame_model)
+    self.setup_subsampling(model, d_t, self.model_sampling, lame_model)
 
     # set gpus list
     self.fd_param['gpus'] = str(gpus)[1:-1]
@@ -99,9 +98,9 @@ class ElasticIsotropic(WaveEquation):
                                   self.wavelet_sep)
 
     # append wavefield sampling to gpu operator
-    self.make_wavefield_sampling_operator(recording_components, self.data_sep)
+    self.setup_wavefield_sampling_operator(recording_components, self.data_sep)
 
-  def set_subsampling(self, model, d_t, model_sampling, lame_model=False):
+  def setup_subsampling(self, model, d_t, model_sampling, lame_model=False):
     sub = self.calc_subsampling(model, d_t, model_sampling, lame_model)
     if 'sub' in self.fd_param:
       if sub > self.fd_param['sub']:
@@ -130,12 +129,6 @@ class ElasticIsotropic(WaveEquation):
 
     # return ceil(d_t / d_t_sub) + 1
     return d_t_sub
-
-  # def set_background(self, model):
-  #   if "getCpp" in dir(model):
-  #     model = model.getCpp()
-  #   with self.ostream_redirect():
-  #     self.wave_prop_operator.args[1].setBackground(model)
 
 
 def convert_to_lame(model):

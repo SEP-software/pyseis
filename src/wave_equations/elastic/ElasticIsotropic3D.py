@@ -300,7 +300,7 @@ class ElasticIsotropic3D(ElasticIsotropic):
 
     return center_grid_hyper, x_staggered_grid_hyper, y_staggered_grid_hyper, z_staggered_grid_hyper, xz_staggered_grid_hyper, xy_staggered_grid_hyper, yz_staggered_grid_hyper
 
-  def make_wavefield_sampling_operator(self, recording_components, data_sep):
+  def setup_wavefield_sampling_operator(self, recording_components, data_sep):
     # _ElasticDatComp_3D expects a string of comma seperated values
     recording_components = ",".join(recording_components)
     #make sampling opeartor

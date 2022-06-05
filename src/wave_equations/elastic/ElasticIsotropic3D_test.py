@@ -121,6 +121,28 @@ def mock_make(self,
 ##### ElasticIsotropic3D tests ################
 ###############################################
 @pytest.mark.gpu
+def test_fwd_vel_components(trapezoid_wavelet, fixed_rec_locations,
+                            src_locations, vp_vs_rho_model_3d):
+  # Arrange
+  recording_components = ['vy', 'vx', 'vz']
+  elastic_3d = ElasticIsotropic3D(model=vp_vs_rho_model_3d,
+                                  model_sampling=(D_Y, D_X, D_Z),
+                                  model_padding=(N_Y_PAD, N_X_PAD, N_Z_PAD),
+                                  wavelet=trapezoid_wavelet,
+                                  d_t=D_T,
+                                  src_locations=src_locations,
+                                  rec_locations=fixed_rec_locations,
+                                  gpus=I_GPUS,
+                                  recording_components=recording_components)
+
+  # Act
+  data = elastic_3d.fwd(vp_vs_rho_model_3d)
+
+  # Assert
+  assert data.shape == (N_SRCS, len(recording_components), N_REC * N_REC, N_T)
+
+
+@pytest.mark.gpu
 def test_fwd(trapezoid_wavelet, fixed_rec_locations, src_locations,
              vp_vs_rho_model_3d):
   # Arrange

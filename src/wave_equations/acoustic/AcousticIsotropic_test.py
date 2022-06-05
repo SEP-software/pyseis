@@ -33,13 +33,13 @@ def test_AcousticIsotropic_is_abstract():
     acoustic_wave_equation = AcousticIsotropic()
 
 
-def test_AcousticIsotropic_set_subsampling(vp_model_half_space):
+def test_AcousticIsotropic_setup_subsampling(vp_model_half_space):
   #make dummy child class so we can test concrete methods of abstract class
   AcousticIsotropic.__abstractmethods__ = set()
   acoustic_wave_equation = AcousticIsotropic()
 
-  acoustic_wave_equation.set_subsampling(vp_model_half_space, D_T,
-                                         model_sampling)
+  acoustic_wave_equation.setup_subsampling(vp_model_half_space, D_T,
+                                           model_sampling)
 
   assert SUB == acoustic_wave_equation.fd_param['sub']
 
