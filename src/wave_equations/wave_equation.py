@@ -1,3 +1,12 @@
+"""Defines the abstract WaveEquation class.
+
+A WaveEquation object is able to forward time march a finite difference wave
+equation in two or three dimensions and sample the resulting wavefield(s) at
+receiver locations. AcousticIsotropic and ElasticIsotropic child classes
+implement different wave equations but share common methods that are defined in
+WaveEquation.
+
+"""
 import numpy as np
 import abc
 from math import ceil

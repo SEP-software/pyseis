@@ -1,3 +1,26 @@
+"""Defines the 2D and 3D AcousticIsotropic wave equation classes.
+
+The AcousticIsotropic2D and AcousticIsotropic3D inherit from the abstract
+AcousticIsotropic class. AcousticIsotropic2D and AcousticIsotropic3D can model
+the acoustic, isotropic, constant-density wave equation in two and three
+dimensions, respectively. With a pressure-wave velocity model, source wavelet,
+source positions, and receiver positions, a user can forward model the wave
+wave equation and sample at receiver locations. Pybind11 is used to wrap C++
+code which then uses CUDA kernels to execute finite difference operations.
+Current implementation parallelizes shots over gpus. 
+
+  Typical usage example:
+    #### 2D ##### 
+    acoustic_2d = acoustic_isotropic.AcousticIsotropic2D(
+      vp_model_nd_array,
+      (d_x, d_z),
+      wavelet_nd_array,
+      d_t,
+      src_locations_nd_array,
+      rec_locations_nd_array,
+      gpus=[0,1,2,4])
+    data = acoustic_2d.fwd(vp_model_half_space)
+"""
 import numpy as np
 from math import ceil
 import Hypercube
@@ -8,7 +31,7 @@ from pyAcoustic_iso_float_nl import deviceGpu as device_gpu_2d
 from pyAcoustic_iso_float_nl import nonlinearPropShotsGpu, ostream_redirect
 # 3d pybind11 modules
 from pyAcoustic_iso_float_nl_3D import deviceGpu_3D as device_gpu_3d
-from pyAcoustic_iso_float_nl_3D import nonlinearPropShotsGpu_3D  #, ostream_redirect
+from pyAcoustic_iso_float_nl_3D import nonlinearPropShotsGpu_3D 
 
 
 class AcousticIsotropic(wave_equation.WaveEquation):

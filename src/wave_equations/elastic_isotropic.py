@@ -1,3 +1,26 @@
+"""Defines the 2D and 3D ElasticIsotropic wave equation classes.
+
+The ElasticIsotropic2D and ElasticIsotropic3D inherit from the abstract
+ElasticIsotropic class. ElasticIsotropic2D and ElasticIsotropic3D can model
+the Elastic, isotropic, constant-density wave equation in two and three
+dimensions, respectively. With a pressure-wave velocity model, source wavelet,
+source positions, and receiver positions, a user can forward model the wave
+wave equation and sample at receiver locations. Pybind11 is used to wrap C++
+code which then uses CUDA kernels to execute finite difference operations.
+Current implementation parallelizes shots over gpus. 
+
+  Typical usage example:
+    #### 2D ##### 
+    Elastic_2d = Elastic_isotropic.ElasticIsotropic2D(
+      vp_vs_rho_model_nd_array,
+      (d_x, d_z),
+      wavelet_nd_array,
+      d_t,
+      src_locations_nd_array,
+      rec_locations_nd_array,
+      gpus=[0,1,2,4])
+    data = Elastic_2d.fwd(vp_model_half_space)
+"""
 import numpy as np
 from math import ceil
 import Hypercube
@@ -10,7 +33,7 @@ from pyElastic_iso_float_nl import nonlinearPropElasticShotsGpu, ostream_redirec
 from dataCompModule import ElasticDatComp as _ElasticDatComp2D
 # 3d pybind modules
 from pyElastic_iso_float_nl_3D import spaceInterpGpu_3D as device_gpu_3d
-from pyElastic_iso_float_nl_3D import nonlinearPropElasticShotsGpu_3D  #, ostream_redirect
+from pyElastic_iso_float_nl_3D import nonlinearPropElasticShotsGpu_3D 
 from dataCompModule_3D import ElasticDatComp_3D as _ElasticDatComp_3D
 
 
