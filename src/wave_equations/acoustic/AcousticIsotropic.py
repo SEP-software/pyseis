@@ -40,9 +40,9 @@ class AcousticIsotropic(WaveEquation):
     self.set_sep_par(self.fd_param)
 
     # make and set gpu operator
-    self.set_gpu_operator(self.get_data_sep(), self.get_model_sep(),
-                          self.get_sep_param(), self.get_src_devices(),
-                          self.get_rec_devices())
+    self.set_wave_prop_operator(self.get_data_sep(), self.get_model_sep(),
+                                self.get_sep_param(), self.get_src_devices(),
+                                self.get_rec_devices(), self.get_wavelet_sep())
 
   def get_subsampling(self):
     if 'sub' not in self.fd_param:

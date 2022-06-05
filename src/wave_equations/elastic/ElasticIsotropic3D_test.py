@@ -112,6 +112,7 @@ def mock_make(self,
               src_locations,
               rec_locations,
               gpus,
+              recording_components,
               lame_model=False):
   return None
 
@@ -300,7 +301,7 @@ def test_set_src_devices_fails_if_no_model(src_locations):
       elastic_3d.set_src_devices(src_locations, N_T)
 
 
-def test_set_model_deafult_padding(vp_vs_rho_model_3d):
+def test_set_model_default_padding(vp_vs_rho_model_3d):
   # Arrange
   with patch.object(ElasticIsotropic3D, "make", mock_make):
     elastic_3d = ElasticIsotropic3D(None, (D_Y, D_X, D_Z), None, None, None,
@@ -390,7 +391,8 @@ def test_set_model(vp_vs_rho_model_3d):
 def test_pad_model(vp_vs_rho_model_3d):
   # Arrange
   with patch.object(ElasticIsotropic3D, "make", mock_make):
-    elastic_3d = ElasticIsotropic3D(None, None, None, None, None, None, None)
+    elastic_3d = ElasticIsotropic3D(None, None, None, None, None, None, None,
+                                    None, None)
 
     # Act
     model, y_pad, y_pad_plus, new_o_y, x_pad, x_pad_plus, new_o_x, z_pad, z_pad_plus, new_o_z = elastic_3d.pad_model(

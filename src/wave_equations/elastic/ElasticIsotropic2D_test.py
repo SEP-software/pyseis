@@ -84,6 +84,7 @@ def mock_make(self,
               src_locations,
               rec_locations,
               gpus,
+              recording_components,
               lame_model=False):
   return None
 

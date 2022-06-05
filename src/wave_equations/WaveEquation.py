@@ -2,6 +2,8 @@ import numpy as np
 import abc
 from math import ceil
 import genericIO
+import pyOperator as Operator
+from pyElastic_iso_float_nl_3D import ostream_redirect
 
 SEP_PARAM_CYPHER = {
     'ny': 'n_y',
@@ -31,11 +33,11 @@ SEP_PARAM_CYPHER = {
 COURANT_LIMIT = 0.45
 
 
-class WaveEquation(abc.ABC):
+class WaveEquation(abc.ABC, Operator.Operator):
 
   def __init__(self):
     self.model_sep = None
-    # self.gpu_operator = None
+    # self.wave_prop_operator = None
     self.fd_param = {'block_size': self.block_size, 'fat': self.fat}
     # self.ostream_redirect = None
 
@@ -96,30 +98,26 @@ class WaveEquation(abc.ABC):
   def get_data_sep(self):
     return self.data_sep
 
-  def set_gpu_operator(self, data_sep, model_sep, sep_par, src_devices,
-                       rec_devices):
-    if not isinstance(src_devices[0], list):
-      src_devices = [src_devices]
-    if not isinstance(rec_devices[0], list):
-      rec_devices = [rec_devices]
-    self.gpu_operator = self.gpu_module(model_sep.getCpp(), sep_par.param,
-                                        *src_devices, *rec_devices)
+  def set_wave_prop_operator(self, data_sep, model_sep, sep_par, src_devices,
+                             rec_devices, wavelet_sep):
+    self.wave_prop_cpp_op = self.wave_prop_cpp_op_class(model_sep, data_sep,
+                                                        sep_par, src_devices,
+                                                        rec_devices,
+                                                        wavelet_sep)
+    self.setDomainRange(model_sep, data_sep)
 
   def fwd(self, model):
     self.set_model(model)
-    self.set_background(self.get_model_sep())
-    if self.gpu_operator is None:
-      raise RuntimeError("self.gpu_operator has not been made")
-
-    with self.ostream_redirect():
-      self.gpu_operator.forward(0,
-                                self.get_wavelet_sep().getCpp(),
-                                self.get_data_sep().getCpp())
+    self.wave_prop_cpp_op.forward(0, self.get_model_sep(), self.get_data_sep())
     return self.get_data_sep().getNdArray()
 
-  @abc.abstractmethod
-  def set_background(self, model):
-    pass
+  def forward(self, add, model_sep, data_sep):
+    with self.ostream_redirect():
+      self.wave_prop_cpp_op.forward(0, model_sep, data_sep)
+
+  # @abc.abstractmethod
+  # def set_background(self, model):
+  #   pass
 
   @abc.abstractmethod
   def find_subsampling(self, model, d_t, model_sampling):
@@ -149,4 +147,31 @@ class WaveEquation(abc.ABC):
 
   @abc.abstractmethod
   def set_data(self, n_t, d_t):
+    pass
+
+
+class _WavePropCppOp(abc.ABC, Operator.Operator):
+  """Wrapper encapsulating PYBIND11 module for the wave propagator"""
+
+  def __init__(self, model_sep, data_sep, sep_par, src_devices, rec_devices,
+               wavelet_sep):
+    self.setDomainRange(model_sep, data_sep)
+    if not isinstance(src_devices[0], list):
+      src_devices = [src_devices]
+    if not isinstance(rec_devices[0], list):
+      rec_devices = [rec_devices]
+    self.wave_prop_operator = self.wave_prop_module(model_sep.getCpp(),
+                                                    sep_par.param, *src_devices,
+                                                    *rec_devices)
+    self.wavelet_sep = wavelet_sep
+
+  def forward(self, add, model_sep, data_sep):
+    #Setting elastic model parameters
+    self.set_background(model_sep)
+    with ostream_redirect():
+      self.wave_prop_operator.forward(add, self.wavelet_sep.getCpp(),
+                                      data_sep.getCpp())
+
+  @abc.abstractmethod
+  def set_background(self, model_sep):
     pass

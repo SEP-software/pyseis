@@ -1,11 +1,11 @@
 from math import ceil
 import numpy as np
 import Hypercube, SepVector
-# from Acoustic_iso_float_3D import nonlinearPropShotsGpu_3D
 from wave_equations.acoustic.AcousticIsotropic import AcousticIsotropic
 from wavelets.acoustic import Acoustic3D
 from pyAcoustic_iso_float_nl_3D import deviceGpu_3D as device_gpu
 from pyAcoustic_iso_float_nl_3D import nonlinearPropShotsGpu_3D, ostream_redirect
+from wave_equations.WaveEquation import _WavePropCppOp
 
 
 class AcousticIsotropic3D(AcousticIsotropic):
@@ -28,7 +28,7 @@ class AcousticIsotropic3D(AcousticIsotropic):
         'iGpu', 'blockSize', 'fat', 'ginsu'
     ]
     self.wavelet_module = Acoustic3D.Acoustic3D
-    self.gpu_module = nonlinearPropShotsGpu_3D
+    self.wave_prop_cpp_op_class = _Aco3dWavePropCppOp
     self.ostream_redirect = ostream_redirect
 
     self.model_sampling = model_sampling
@@ -222,8 +222,12 @@ class AcousticIsotropic3D(AcousticIsotropic):
 
     self.data_sep = data_sep
 
-  def set_background(self, model):
-    if "getCpp" in dir(model):
-      model = model.getCpp()
-    with self.ostream_redirect():
-      self.gpu_operator.setVel_3D(model)
+
+class _Aco3dWavePropCppOp(_WavePropCppOp):
+  """Wrapper encapsulating PYBIND11 module for the wave propagator"""
+
+  wave_prop_module = nonlinearPropShotsGpu_3D
+
+  def set_background(self, model_sep):
+    with ostream_redirect():
+      self.wave_prop_operator.setVel_3D(model_sep.getCpp())

@@ -5,6 +5,7 @@ from pyAcoustic_iso_float_nl import deviceGpu as device_gpu
 from pyAcoustic_iso_float_nl import nonlinearPropShotsGpu, ostream_redirect
 from wave_equations.acoustic.AcousticIsotropic import AcousticIsotropic
 from wavelets.acoustic import Acoustic2D
+from wave_equations.WaveEquation import _WavePropCppOp
 
 
 class AcousticIsotropic2D(AcousticIsotropic):
@@ -26,7 +27,7 @@ class AcousticIsotropic2D(AcousticIsotropic):
         'fat'
     ]
     self.wavelet_module = Acoustic2D.Acoustic2D
-    self.gpu_module = nonlinearPropShotsGpu
+    self.wave_prop_cpp_op_class = _Aco2dWavePropCppOp
     self.ostream_redirect = ostream_redirect
 
     self.model_sampling = model_sampling
@@ -182,8 +183,12 @@ class AcousticIsotropic2D(AcousticIsotropic):
 
     self.data_sep = data_sep
 
-  def set_background(self, model):
-    if "getCpp" in dir(model):
-      model = model.getCpp()
-    with self.ostream_redirect():
-      self.gpu_operator.setVel(model)
+
+class _Aco2dWavePropCppOp(_WavePropCppOp):
+  """Wrapper encapsulating PYBIND11 module for the wave propagator"""
+
+  wave_prop_module = nonlinearPropShotsGpu
+
+  def set_background(self, model_sep):
+    with ostream_redirect():
+      self.wave_prop_operator.setVel(model_sep.getCpp())

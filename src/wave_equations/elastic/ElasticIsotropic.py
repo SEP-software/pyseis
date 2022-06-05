@@ -17,6 +17,7 @@ class ElasticIsotropic(WaveEquation):
            src_locations,
            rec_locations,
            gpus,
+           recording_components,
            lame_model=False):
     """Make an elastic, isotropic wave-equation operator.
 
@@ -93,9 +94,13 @@ class ElasticIsotropic(WaveEquation):
     self.set_sep_par(self.fd_param)
 
     # make and set gpu operator
-    self.set_gpu_operator(self.get_data_sep(), self.get_model_sep(),
-                          self.get_sep_param(), self.get_src_devices(),
-                          self.get_rec_devices())
+    self.set_wave_prop_operator(self.get_data_sep(), self.get_model_sep(),
+                                self.get_sep_param(), self.get_src_devices(),
+                                self.get_rec_devices(), self.get_wavelet_sep())
+
+    # append wavefield sampling to gpu operator
+    self.make_wavefield_sampling_operator(recording_components,
+                                          self.get_data_sep())
 
   def set_subsampling(self, model, d_t, model_sampling, lame_model=False):
     sub = self.find_subsampling(model, d_t, model_sampling, lame_model)
@@ -127,11 +132,11 @@ class ElasticIsotropic(WaveEquation):
     # return ceil(d_t / d_t_sub) + 1
     return d_t_sub
 
-  def set_background(self, model):
-    if "getCpp" in dir(model):
-      model = model.getCpp()
-    with self.ostream_redirect():
-      self.gpu_operator.setBackground(model)
+  # def set_background(self, model):
+  #   if "getCpp" in dir(model):
+  #     model = model.getCpp()
+  #   with self.ostream_redirect():
+  #     self.wave_prop_operator.args[1].setBackground(model)
 
 
 def convert_to_lame(model):

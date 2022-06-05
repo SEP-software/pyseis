@@ -1,11 +1,13 @@
 from math import ceil
 import numpy as np
 import Hypercube, SepVector
-# from Elastic_iso_float_3D import nonlinearPropElasticShotsGpu_3D
 from pyElastic_iso_float_nl_3D import spaceInterpGpu_3D as device_gpu
 from pyElastic_iso_float_nl_3D import nonlinearPropElasticShotsGpu_3D, ostream_redirect
 from wave_equations.elastic.ElasticIsotropic import ElasticIsotropic, convert_to_lame, convert_to_vel
 from wavelets.elastic import Elastic3D
+from dataCompModule_3D import ElasticDatComp_3D as _ElasticDatComp_3D
+import pyOperator as Operator
+from wave_equations.WaveEquation import _WavePropCppOp
 
 
 class ElasticIsotropic3D(ElasticIsotropic):
@@ -22,7 +24,10 @@ class ElasticIsotropic3D(ElasticIsotropic):
                gpus,
                model_padding=(30, 30, 30),
                model_origins=(0.0, 0.0, 0.0),
-               lame_model=False):
+               lame_model=False,
+               recording_components=[
+                   'vx', 'vy', 'vz', 'sxx', 'syy', 'szz', 'sxz', 'sxy', 'syz'
+               ]):
     super().__init__()
     self.required_sep_params = [
         'ny', 'dy', 'nx', 'dx', 'nz', 'dz', 'yPad', 'xPadMinus', 'xPadPlus',
@@ -30,14 +35,13 @@ class ElasticIsotropic3D(ElasticIsotropic):
         'iGpu', 'blockSize', 'fat'
     ]
     self.wavelet_module = Elastic3D.Elastic3D
-    self.gpu_module = nonlinearPropElasticShotsGpu_3D
-    self.ostream_redirect = ostream_redirect
+    self.wave_prop_cpp_op_class = _Ela3dWavePropCppOp
 
     self.model_sampling = model_sampling
     self.model_padding = model_padding
     self.model_origins = model_origins
     self.make(model, wavelet, d_t, src_locations, rec_locations, gpus,
-              lame_model)
+              recording_components, lame_model)
 
   def set_model(self, model, lame_model=False):
     if not lame_model:
@@ -282,3 +286,24 @@ class ElasticIsotropic3D(ElasticIsotropic):
         axes=[z_axis_staggered, x_axis, y_axis_staggered, param_axis])
 
     return center_grid_hyper, x_staggered_grid_hyper, y_staggered_grid_hyper, z_staggered_grid_hyper, xz_staggered_grid_hyper, xy_staggered_grid_hyper, yz_staggered_grid_hyper
+
+  def make_wavefield_sampling_operator(self, recording_components, data_sep):
+    # _ElasticDatComp_3D expects a string of comma seperated values
+    recording_components = ",".join(recording_components)
+    #make sampling opeartor
+    wavefield_sampling_operator = _ElasticDatComp_3D(recording_components,
+                                                    data_sep)
+    self.data_sep = wavefield_sampling_operator.range.clone()
+
+    self.wave_prop_cpp_op = Operator.ChainOperator(self.wave_prop_cpp_op,
+                                                   wavefield_sampling_operator)
+
+
+class _Ela3dWavePropCppOp(_WavePropCppOp):
+  """Wrapper encapsulating PYBIND11 module for the wave propagator"""
+
+  wave_prop_module = nonlinearPropElasticShotsGpu_3D
+
+  def set_background(self, model_sep):
+    with ostream_redirect():
+      self.wave_prop_operator.setBackground(model_sep.getCpp())
