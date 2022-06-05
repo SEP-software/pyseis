@@ -2,12 +2,12 @@
 
 The ElasticIsotropic2D and ElasticIsotropic3D inherit from the abstract
 ElasticIsotropic class. ElasticIsotropic2D and ElasticIsotropic3D can model
-the Elastic, isotropic, constant-density wave equation in two and three
-dimensions, respectively. With a pressure-wave velocity model, source wavelet,
-source positions, and receiver positions, a user can forward model the wave
-wave equation and sample at receiver locations. Pybind11 is used to wrap C++
-code which then uses CUDA kernels to execute finite difference operations.
-Current implementation parallelizes shots over gpus. 
+the elastic, isotropic wave equation in two and three dimensions, respectively,
+using a staggered-grid implementation. With a pressure-wave velocity model,
+source wavelet, source positions, and receiver positions, a user can forward
+model the wave wave equation and sample at receiver locations. Pybind11 is used
+to wrap C++ code which then uses CUDA kernels to execute finite difference
+operations. Current implementation parallelizes shots over gpus. 
 
   Typical usage example:
     #### 2D ##### 
@@ -33,7 +33,7 @@ from pyElastic_iso_float_nl import nonlinearPropElasticShotsGpu, ostream_redirec
 from dataCompModule import ElasticDatComp as _ElasticDatComp2D
 # 3d pybind modules
 from pyElastic_iso_float_nl_3D import spaceInterpGpu_3D as device_gpu_3d
-from pyElastic_iso_float_nl_3D import nonlinearPropElasticShotsGpu_3D 
+from pyElastic_iso_float_nl_3D import nonlinearPropElasticShotsGpu_3D
 from dataCompModule_3D import ElasticDatComp_3D as _ElasticDatComp_3D
 
 
