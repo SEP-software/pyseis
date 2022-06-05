@@ -223,15 +223,6 @@ class Wavelet(abc.ABC):
     self.arr = arr
     self.f_max = calc_max_freq(self.arr, self.d_t)
 
-  # def make(self, config=None, arr=None):
-  #   if arr is not None:
-  #     self.set_arr(arr)
-  #   elif config is not None:
-  #     self.set_arr(self._make(config))
-  #   else:
-  #     raise RuntimeError('Must provide a config dictionary or arr array')
-  #   self.f_max = self.calc_max_freq(self.arr, self.d_t)
-
   def get_arr(self):
     """Get the numpy array containing a wavelet's time series signal.
 
@@ -251,11 +242,3 @@ class Wavelet(abc.ABC):
         NotImplementedError: Inherited class did not implement get_sep
     """
     raise NotImplementedError('get_sep not overwritten by Wavelet child class')
-
-
-# class Isotropic(Wavelet):
-
-#   @abc.abstractmethod
-#   def _make_isotropic_components(self, trace):
-#     raise NotImplementedError(
-#         '_set_isotropic_components not overwritten by Wavelet child class')

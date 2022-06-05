@@ -26,25 +26,25 @@ def vp_vs_rho_model_2d():
   return np.array((vp_2d, vs_2d, rho_2d))
 
 
-def test_find_subsampling_lame_model(vp_vs_rho_model_2d):
+def test_calc_subsampling_lame_model(vp_vs_rho_model_2d):
   #make dummy child class so we can test concrete methods of abstract class
   ElasticIsotropic.__abstractmethods__ = set()
   elastic_wave_equation = ElasticIsotropic()
   rho_lame_mu_model_2d = convert_to_lame(vp_vs_rho_model_2d)
 
-  sub = elastic_wave_equation.find_subsampling(rho_lame_mu_model_2d,
+  sub = elastic_wave_equation.calc_subsampling(rho_lame_mu_model_2d,
                                                D_T, (D_X, D_Z),
                                                lame_model=True)
 
   assert sub == SUB
 
 
-def test_find_subsampling_vel_model(vp_vs_rho_model_2d):
+def test_calc_subsampling_vel_model(vp_vs_rho_model_2d):
   #make dummy child class so we can test concrete methods of abstract class
   ElasticIsotropic.__abstractmethods__ = set()
   elastic_wave_equation = ElasticIsotropic()
 
-  sub = elastic_wave_equation.find_subsampling(vp_vs_rho_model_2d,
+  sub = elastic_wave_equation.calc_subsampling(vp_vs_rho_model_2d,
                                                D_T, (D_X, D_Z),
                                                lame_model=False)
 

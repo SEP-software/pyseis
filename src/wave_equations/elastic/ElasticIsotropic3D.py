@@ -43,7 +43,7 @@ class ElasticIsotropic3D(ElasticIsotropic):
     self.make(model, wavelet, d_t, src_locations, rec_locations, gpus,
               recording_components, lame_model)
 
-  def set_model(self, model, lame_model=False):
+  def setup_model(self, model, lame_model=False):
     if not lame_model:
       model = convert_to_lame(model)
 
@@ -137,11 +137,11 @@ class ElasticIsotropic3D(ElasticIsotropic):
 
     return model, y_pad, y_pad_plus, new_o_y, x_pad, x_pad_plus, new_o_x, z_pad, z_pad_plus, new_o_z
 
-  def set_src_devices(self, src_locations, n_t, interp_method='linear'):
+  def setup_src_devices(self, src_locations, n_t, interp_method='linear'):
     """
     src_locations - [n_src,(x_pos,z_pos)]
     """
-    if self.get_model_sep() is None:
+    if self.model_sep is None:
       raise RuntimeError('self.model_sep must be set to set src devices')
 
     if 'n_src' in self.fd_param:
@@ -152,7 +152,7 @@ class ElasticIsotropic3D(ElasticIsotropic):
         self.fd_param['o_y'], self.fd_param['o_x'], self.fd_param['o_z'],
         self.fd_param['d_y'], self.fd_param['d_x'], self.fd_param['d_z'])
 
-    sep_par = self.to_sep({
+    sep_par = self.make_sep_par({
         'fat': self.fd_param['fat'],
         'zPadMinus': self.fd_param['z_pad_minus'],
         'zPadPlus': self.fd_param['z_pad_plus'],
@@ -179,15 +179,15 @@ class ElasticIsotropic3D(ElasticIsotropic):
     self.fd_param['n_src'] = len(src_locations)
     self.src_devices = src_devices_staggered_grids
 
-  def set_rec_devices(self,
-                      rec_locations,
-                      n_t,
-                      interp_method='linear',
-                      interp_n_filters=4):
+  def setup_rec_devices(self,
+                        rec_locations,
+                        n_t,
+                        interp_method='linear',
+                        interp_n_filters=4):
     """
     src_locations - [n_rec,(x_pos,z_pos)] OR [n_src,n_rec,(x_pos,z_pos)]
     """
-    if self.get_model_sep() is None:
+    if self.model_sep is None:
       raise RuntimeError('self.model_sep must be set to set src devices')
 
     if len(rec_locations.shape) == 3:
@@ -213,7 +213,7 @@ class ElasticIsotropic3D(ElasticIsotropic):
         self.fd_param['o_y'], self.fd_param['o_x'], self.fd_param['o_z'],
         self.fd_param['d_y'], self.fd_param['d_x'], self.fd_param['d_z'])
 
-    sep_par = self.to_sep({
+    sep_par = self.make_sep_par({
         'fat': self.fd_param['fat'],
         'zPadMinus': self.fd_param['z_pad_minus'],
         'zPadPlus': self.fd_param['z_pad_plus'],
@@ -241,11 +241,13 @@ class ElasticIsotropic3D(ElasticIsotropic):
     self.fd_param['n_rec'] = n_rec
     self.rec_devices = rec_devices_staggered_grids
 
-  def set_data(self, n_t, d_t):
+  def setup_data(self, n_t, d_t):
     if 'n_src' not in self.fd_param:
-      raise RuntimeError('self.fd_param[\'n_src\'] must be set to set set_data')
+      raise RuntimeError(
+          'self.fd_param[\'n_src\'] must be set to set setup_data')
     if 'n_rec' not in self.fd_param:
-      raise RuntimeError('self.fd_param[\'n_rec\'] must be set to set set_data')
+      raise RuntimeError(
+          'self.fd_param[\'n_rec\'] must be set to set setup_data')
 
     data_sep = SepVector.getSepVector(
         Hypercube.hypercube(axes=[
@@ -292,7 +294,7 @@ class ElasticIsotropic3D(ElasticIsotropic):
     recording_components = ",".join(recording_components)
     #make sampling opeartor
     wavefield_sampling_operator = _ElasticDatComp_3D(recording_components,
-                                                    data_sep)
+                                                     data_sep)
     self.data_sep = wavefield_sampling_operator.range.clone()
 
     self.wave_prop_cpp_op = Operator.ChainOperator(self.wave_prop_cpp_op,

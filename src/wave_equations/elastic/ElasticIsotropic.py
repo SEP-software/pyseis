@@ -66,20 +66,20 @@ class ElasticIsotropic(WaveEquation):
           Defaults to False.
     """
     # pads model, makes self.model_sep, and updates self.fd_param
-    self.set_model(model, lame_model)
+    self.setup_model(model, lame_model)
 
     # make and set wavelet
-    self.set_wavelet(wavelet, d_t)
+    self.setup_wavelet(wavelet, d_t)
     n_t = wavelet.shape[-1]
 
     # make and set source devices
-    self.set_src_devices(src_locations, n_t)
+    self.setup_src_devices(src_locations, n_t)
 
     # make and set rec devices
-    self.set_rec_devices(rec_locations, n_t)
+    self.setup_rec_devices(rec_locations, n_t)
 
     # make and set data space
-    self.set_data(n_t, d_t)
+    self.setup_data(n_t, d_t)
 
     # calculate and find subsampling
     self.set_subsampling(model, d_t, self.model_sampling, lame_model)
@@ -91,19 +91,18 @@ class ElasticIsotropic(WaveEquation):
     self.fd_param['ginsu'] = 0
 
     # make and set sep par
-    self.set_sep_par(self.fd_param)
+    self.setup_sep_par(self.fd_param)
 
     # make and set gpu operator
-    self.set_wave_prop_operator(self.get_data_sep(), self.get_model_sep(),
-                                self.get_sep_param(), self.get_src_devices(),
-                                self.get_rec_devices(), self.get_wavelet_sep())
+    self.setup_wave_prop_operator(self.data_sep, self.model_sep, self.sep_param,
+                                  self.src_devices, self.rec_devices,
+                                  self.wavelet_sep)
 
     # append wavefield sampling to gpu operator
-    self.make_wavefield_sampling_operator(recording_components,
-                                          self.get_data_sep())
+    self.make_wavefield_sampling_operator(recording_components, self.data_sep)
 
   def set_subsampling(self, model, d_t, model_sampling, lame_model=False):
-    sub = self.find_subsampling(model, d_t, model_sampling, lame_model)
+    sub = self.calc_subsampling(model, d_t, model_sampling, lame_model)
     if 'sub' in self.fd_param:
       if sub > self.fd_param['sub']:
         raise RuntimeError(
@@ -111,7 +110,7 @@ class ElasticIsotropic(WaveEquation):
         )
     self.fd_param['sub'] = sub
 
-  def find_subsampling(self, model, d_t, model_sampling, lame_model=False):
+  def calc_subsampling(self, model, d_t, model_sampling, lame_model=False):
     """Find time downsampling needed during propagation to remain stable.
 
     Args:

@@ -36,7 +36,7 @@ class AcousticIsotropic3D(AcousticIsotropic):
     self.model_origins = model_origins
     self.make(model, wavelet, d_t, src_locations, rec_locations, gpus)
 
-  def set_model(self, model):
+  def setup_model(self, model):
 
     model, y_pad, y_pad_plus, new_o_y, x_pad, x_pad_plus, new_o_x, z_pad, z_pad_plus, new_o_z = self.pad_model(
         model, self.model_sampling, self.model_padding, self.model_origins)
@@ -119,17 +119,17 @@ class AcousticIsotropic3D(AcousticIsotropic):
 
     return model, y_pad, y_pad_plus, new_o_y, x_pad, x_pad_plus, new_o_x, z_pad, z_pad_plus, new_o_z
 
-  def set_src_devices(self, src_locations, n_t):
+  def setup_src_devices(self, src_locations, n_t):
     """
     src_locations - [n_src,(x_pos,z_pos)]
     """
-    if self.get_model_sep() is None:
+    if self.model_sep is None:
       raise RuntimeError('self.model_sep must be set to set src devices')
 
     if 'n_src' in self.fd_param:
       assert self.fd_param['n_src'] == len(src_locations)
 
-    sep_par = self.to_sep({
+    sep_par = self.make_sep_par({
         'fat': self.fd_param['fat'],
         'zPadMinus': self.fd_param['z_pad_minus'],
         'zPadPlus': self.fd_param['z_pad_plus'],
@@ -149,18 +149,17 @@ class AcousticIsotropic3D(AcousticIsotropic):
 
       source_devices.append(
           device_gpu(z_coord_sep.getCpp(), x_coord_sep.getCpp(),
-                     y_coord_sep.getCpp(),
-                     self.get_model_sep().getCpp(), int(n_t), sep_par.param, 0,
-                     0, 0, 0, 'linear', 1))
+                     y_coord_sep.getCpp(), self.model_sep.getCpp(), int(n_t),
+                     sep_par.param, 0, 0, 0, 0, 'linear', 1))
 
     self.fd_param['n_src'] = len(source_devices)
     self.src_devices = source_devices
 
-  def set_rec_devices(self, rec_locations, n_t):
+  def setup_rec_devices(self, rec_locations, n_t):
     """
     src_locations - [n_rec,(y_pos,x_pos,z_pos)] OR [n_shot,n_rec,(y_pos,x_pos,z_pos)]
     """
-    if self.get_model_sep() is None:
+    if self.model_sep is None:
       raise RuntimeError('self.model_sep must be set to set src devices')
 
     if len(rec_locations.shape) == 3:
@@ -189,7 +188,7 @@ class AcousticIsotropic3D(AcousticIsotropic):
       x_coord_sep.getNdArray()[:] = rec_location[:, 1]
       z_coord_sep = SepVector.getSepVector(ns=[n_rec])
       z_coord_sep.getNdArray()[:] = rec_location[:, 2]
-      sep_par = self.to_sep({
+      sep_par = self.make_sep_par({
           'fat': self.fd_param['fat'],
           'zPadMinus': self.fd_param['z_pad_minus'],
           'zPadPlus': self.fd_param['z_pad_plus'],
@@ -199,19 +198,19 @@ class AcousticIsotropic3D(AcousticIsotropic):
       })
       rec_devices.append(
           device_gpu(z_coord_sep.getCpp(), x_coord_sep.getCpp(),
-                     y_coord_sep.getCpp(),
-                     self.get_model_sep().getCpp(), int(n_t), sep_par.param, 0,
-                     0, 0, 0, 'linear', 1))
+                     y_coord_sep.getCpp(), self.model_sep.getCpp(), int(n_t),
+                     sep_par.param, 0, 0, 0, 0, 'linear', 1))
 
     self.fd_param['n_rec'] = n_rec
     self.rec_devices = rec_devices
 
-  def set_data(self, n_t, d_t):
+  def setup_data(self, n_t, d_t):
     if 'n_src' not in self.fd_param:
       raise RuntimeError(
-          'self.fd_param[\'n_shots\'] must be set to set set_data')
+          'self.fd_param[\'n_shots\'] must be set to set setup_data')
     if 'n_rec' not in self.fd_param:
-      raise RuntimeError('self.fd_param[\'n_rec\'] must be set to set set_data')
+      raise RuntimeError(
+          'self.fd_param[\'n_rec\'] must be set to set setup_data')
 
     data_sep = SepVector.getSepVector(
         Hypercube.hypercube(axes=[
