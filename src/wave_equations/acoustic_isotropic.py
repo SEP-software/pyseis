@@ -47,16 +47,15 @@ class AcousticIsotropic(wave_equation.WaveEquation):
 
     # make and set wavelet
     self._setup_wavelet(wavelet, d_t)
-    n_t = wavelet.shape[-1]
 
     # make and set source devices
-    self._setup_src_devices(src_locations, n_t)
+    self._setup_src_devices(src_locations, self.fd_param['n_t'])
 
     # make and set rec devices
-    self._setup_rec_devices(rec_locations, n_t)
+    self._setup_rec_devices(rec_locations, self.fd_param['n_t'])
 
     # make and set data space
-    self._setup_data(n_t, d_t)
+    self._setup_data(self.fd_param['n_t'], d_t)
 
     # calculate and find subsampling
     self._setup_subsampling(model, d_t, self.model_sampling)
