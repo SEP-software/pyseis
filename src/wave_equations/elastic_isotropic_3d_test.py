@@ -111,7 +111,8 @@ def mock_make(self,
               rec_locations,
               gpus,
               recording_components,
-              lame_model=False):
+              lame_model=False,
+              subsampling=None):
   return None
 
 
@@ -175,6 +176,23 @@ def test_init(trapezoid_wavelet, fixed_rec_locations, src_locations,
       src_locations=src_locations,
       rec_locations=fixed_rec_locations,
       gpus=I_GPUS)
+
+
+@pytest.mark.gpu
+def test_init_with_wrong_sub(trapezoid_wavelet, fixed_rec_locations,
+                             src_locations, vp_vs_rho_model_3d):
+  # Act
+  with pytest.raises(RuntimeError):
+    elastic_3d = elastic_isotropic.ElasticIsotropic3D(
+        model=vp_vs_rho_model_3d,
+        model_sampling=(D_Y, D_X, D_Z),
+        model_padding=(N_Y_PAD, N_X_PAD, N_Z_PAD),
+        wavelet=trapezoid_wavelet,
+        d_t=D_T,
+        src_locations=src_locations,
+        rec_locations=fixed_rec_locations,
+        gpus=I_GPUS,
+        subsampling=1)
 
 
 def test_setup_wavelet(trapezoid_wavelet):

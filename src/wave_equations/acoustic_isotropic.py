@@ -41,7 +41,14 @@ class AcousticIsotropic(wave_equation.WaveEquation):
   def __init__(self):
     super().__init__()
 
-  def _make(self, model, wavelet, d_t, src_locations, rec_locations, gpus):
+  def _make(self,
+            model,
+            wavelet,
+            d_t,
+            src_locations,
+            rec_locations,
+            gpus,
+            subsampling=None):
     # pads model, makes self.model_sep, and updates self.fd_param
     self._setup_model(model)
 
@@ -59,6 +66,12 @@ class AcousticIsotropic(wave_equation.WaveEquation):
 
     # calculate and find subsampling
     self._setup_subsampling(model, d_t, self.model_sampling)
+    if subsampling is not None:
+      if subsampling < self.fd_param['sub']:
+        raise RuntimeError(
+            f"User specified subsampling={subsampling} that will does not satisfy Courant condition. subsampling must be >={self.fd_param['sub']}"
+        )
+      self.fd_param['sub'] = subsampling
 
     # set gpus list
     self.fd_param['gpus'] = str(gpus)[1:-1]
@@ -111,7 +124,8 @@ class AcousticIsotropic2D(AcousticIsotropic):
                rec_locations,
                gpus,
                model_padding=(50, 50),
-               model_origins=(0.0, 0.0)):
+               model_origins=(0.0, 0.0),
+               subsampling=None):
     super().__init__()
     self.required_sep_params = [
         'nx', 'dx', 'nz', 'dz', 'xPadMinus', 'xPadPlus', 'zPadMinus',
@@ -124,7 +138,8 @@ class AcousticIsotropic2D(AcousticIsotropic):
     self.model_sampling = model_sampling
     self.model_padding = model_padding
     self.model_origins = model_origins
-    self._make(model, wavelet, d_t, src_locations, rec_locations, gpus)
+    self._make(model, wavelet, d_t, src_locations, rec_locations, gpus,
+               subsampling)
 
   def _setup_model(self, model):
     model, x_pad, x_pad_plus, new_o_x, z_pad, z_pad_plus, new_o_z = self._pad_model(
@@ -305,7 +320,8 @@ class AcousticIsotropic3D(AcousticIsotropic):
                rec_locations,
                gpus,
                model_padding=(30, 30, 30),
-               model_origins=(0.0, 0.0, 0.0)):
+               model_origins=(0.0, 0.0, 0.0),
+               subsampling=None):
     super().__init__()
     self.required_sep_params = [
         'nx', 'dx', 'nz', 'dz', 'ny', 'dy', 'xPadMinus', 'xPadPlus',
@@ -318,7 +334,8 @@ class AcousticIsotropic3D(AcousticIsotropic):
     self.model_sampling = model_sampling
     self.model_padding = model_padding
     self.model_origins = model_origins
-    self._make(model, wavelet, d_t, src_locations, rec_locations, gpus)
+    self._make(model, wavelet, d_t, src_locations, rec_locations, gpus,
+               subsampling)
 
   def _setup_model(self, model):
 

@@ -80,7 +80,8 @@ def vp_model_shallow_half_space():
 
 
 # mock the make function so we can test all of the individual function calls within make below
-def mock_make(self, model, wavelet, d_t, src_locations, rec_locations, gpus):
+def mock_make(self, model, wavelet, d_t, src_locations, rec_locations, gpus,
+              subsampling):
   return None
 
 
@@ -145,6 +146,23 @@ def test_init(ricker_wavelet, fixed_rec_locations, src_locations,
       src_locations=src_locations,
       rec_locations=fixed_rec_locations,
       gpus=I_GPUS)
+
+
+@pytest.mark.gpu
+def test_init_with_wrong_sub(ricker_wavelet, fixed_rec_locations, src_locations,
+                             vp_model_half_space):
+  # Act
+  with pytest.raises(RuntimeError):
+    acoustic_2d = acoustic_isotropic.AcousticIsotropic2D(
+        model=vp_model_half_space,
+        model_sampling=(D_X, D_Z),
+        model_padding=(N_X_PAD, N_Z_PAD),
+        wavelet=ricker_wavelet,
+        d_t=D_T,
+        src_locations=src_locations,
+        rec_locations=fixed_rec_locations,
+        gpus=I_GPUS,
+        subsampling=1)
 
 
 def test_setup_wavelet(ricker_wavelet):

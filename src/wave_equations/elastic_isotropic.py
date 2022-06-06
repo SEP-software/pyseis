@@ -54,7 +54,8 @@ class ElasticIsotropic(wave_equation.WaveEquation):
             rec_locations,
             gpus,
             recording_components,
-            lame_model=False):
+            lame_model=False,
+            subsampling=None):
     """Make an elastic, isotropic wave-equation operator.
 
     Operator can be used to forward model the elastic, isotropic wave equation
@@ -118,7 +119,12 @@ class ElasticIsotropic(wave_equation.WaveEquation):
 
     # calculate and find subsampling
     self._setup_subsampling(model, d_t, self.model_sampling, lame_model)
-
+    if subsampling is not None:
+      if subsampling < self.fd_param['sub']:
+        raise RuntimeError(
+            f"User specified subsampling={subsampling} that will does not satisfy Courant condition. subsampling must be >={self.fd_param['sub']}"
+        )
+      self.fd_param['sub'] = subsampling
     # set gpus list
     self.fd_param['gpus'] = str(gpus)[1:-1]
 
@@ -191,7 +197,8 @@ class ElasticIsotropic2D(ElasticIsotropic):
                    'sxx',
                    'szz',
                    'sxz',
-               ]):
+               ],
+               subsampling=None):
     super().__init__()
     self.wave_prop_cpp_op_class = _Ela2dWavePropCppOp
     self.required_sep_params = [
@@ -204,7 +211,7 @@ class ElasticIsotropic2D(ElasticIsotropic):
     self.model_padding = model_padding
     self.model_origins = model_origins
     self._make(model, wavelet, d_t, src_locations, rec_locations, gpus,
-               recording_components, lame_model)
+               recording_components, lame_model, subsampling)
 
   def _setup_model(self, model, lame_model=False):
     if not lame_model:
@@ -449,7 +456,8 @@ class ElasticIsotropic3D(ElasticIsotropic):
                lame_model=False,
                recording_components=[
                    'vx', 'vy', 'vz', 'sxx', 'syy', 'szz', 'sxz', 'sxy', 'syz'
-               ]):
+               ],
+               subsampling=None):
     super().__init__()
     self.required_sep_params = [
         'ny', 'dy', 'nx', 'dx', 'nz', 'dz', 'yPad', 'xPadMinus', 'xPadPlus',
@@ -462,7 +470,7 @@ class ElasticIsotropic3D(ElasticIsotropic):
     self.model_padding = model_padding
     self.model_origins = model_origins
     self._make(model, wavelet, d_t, src_locations, rec_locations, gpus,
-               recording_components, lame_model)
+               recording_components, lame_model, subsampling)
 
   def _setup_model(self, model, lame_model=False):
     if not lame_model:
