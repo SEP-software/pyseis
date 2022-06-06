@@ -71,6 +71,14 @@ def vp_model_half_space():
   return vp_model
 
 
+@pytest.fixture
+def vp_model_shallow_half_space():
+  vp_model = np.zeros((N_X, N_Z))
+  vp_model[:, :N_Z // 4] = VP_1
+  vp_model[:, N_Z // 4:] = VP_2
+  return vp_model
+
+
 # mock the make function so we can test all of the individual function calls within make below
 def mock_make(self, model, wavelet, d_t, src_locations, rec_locations, gpus):
   return None
@@ -79,6 +87,29 @@ def mock_make(self, model, wavelet, d_t, src_locations, rec_locations, gpus):
 ###############################################
 #### AcousticIsotropic2D tests ################
 ###############################################
+@pytest.mark.gpu
+def test_fwd_diff_models_makes_diff_data(ricker_wavelet, fixed_rec_locations,
+                                         src_locations, vp_model_half_space,
+                                         vp_model_shallow_half_space):
+  # Arrange
+  acoustic_2d = acoustic_isotropic.AcousticIsotropic2D(
+      model=vp_model_half_space,
+      model_sampling=(D_X, D_Z),
+      model_padding=(N_X_PAD, N_Z_PAD),
+      wavelet=ricker_wavelet,
+      d_t=D_T,
+      src_locations=src_locations,
+      rec_locations=fixed_rec_locations,
+      gpus=I_GPUS)
+
+  # Act
+  data1 = acoustic_2d.fwd(vp_model_half_space)
+  data2 = acoustic_2d.fwd(vp_model_shallow_half_space)
+
+  # Assert
+  assert not np.allclose(data1, data2)
+
+
 @pytest.mark.gpu
 def test_fwd(ricker_wavelet, fixed_rec_locations, src_locations,
              vp_model_half_space):

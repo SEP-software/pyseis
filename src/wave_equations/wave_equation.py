@@ -52,7 +52,8 @@ class WaveEquation(abc.ABC, Operator.Operator):
   def fwd(self, model):
     self._setup_model(model)
     self.wave_prop_cpp_op.forward(0, self.model_sep, self.data_sep)
-    return self.data_sep.getNdArray()
+    return np.copy(self.data_sep.getNdArray())
+    # return self.data_sep.getNdArray()
 
   def forward(self, add, model_sep, data_sep):
     with self.ostream_redirect():
