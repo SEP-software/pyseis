@@ -173,7 +173,7 @@ def make_trapezoid_trace(n_t, d_t, f1, f2, f3, f4, delay=0.0):
   left_zero = f < f1
   ramp_up = (f >= f1) & (f < f2)
   plateau = (f >= f2) & (f < f3)
-  ramp_down = (f >= f3) & (f < f3)
+  ramp_down = (f >= f3) & (f < f4)
   right_zero = f >= f4
 
   arr_fft[left_zero] = 0.0
