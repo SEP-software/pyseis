@@ -40,7 +40,7 @@ SEP_PARAM_CYPHER = {
     'fat': '_FAT',
     'ginsu': 'ginsu',
     'freeSurface': 'free_surface',
-    'surfaceCondition': 'free_surface'
+    'surfaceCondition': 'surface_condition'
 }
 COURANT_LIMIT = 0.45
 

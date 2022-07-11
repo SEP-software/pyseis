@@ -242,7 +242,7 @@ class ElasticIsotropic2D(ElasticIsotropic):
     self.fd_param['x_pad_plus'] = x_pad_plus
     self.fd_param['z_pad_minus'] = z_pad
     self.fd_param['z_pad_plus'] = z_pad_plus
-    self.fd_param['free_surface'] = int(self.free_surface)
+    self.fd_param['surface_condition'] = int(self.free_surface)
 
   def _pad_model(self,
                  model,
@@ -472,13 +472,17 @@ class ElasticIsotropic3D(ElasticIsotropic):
     self.required_sep_params = [
         'ny', 'dy', 'nx', 'dx', 'nz', 'dz', 'yPad', 'xPadMinus', 'xPadPlus',
         'zPadMinus', 'zPadPlus', 'mod_par', 'dts', 'nts', 'fMax', 'sub', 'nExp',
-        'iGpu', 'blockSize', 'fat', 'surfaceCondition'
+        'iGpu', 'blockSize', 'fat', 'freeSurface'
     ]
     self.wave_prop_cpp_op_class = _Ela3dWavePropCppOp
 
     self.model_sampling = model_sampling
     self.model_padding = model_padding
     self.model_origins = model_origins
+    if free_surface == True:
+      raise NotImplementedError(
+          '3D elastic with a free surface condition has not been implemented yet!'
+      )
     self.free_surface = free_surface
     self._make(model, wavelet, d_t, src_locations, rec_locations, gpus,
                recording_components, lame_model, subsampling)
@@ -491,6 +495,7 @@ class ElasticIsotropic3D(ElasticIsotropic):
     model, y_pad, y_pad_plus, new_o_y, x_pad, x_pad_plus, new_o_x, z_pad, z_pad_plus, new_o_z = self._pad_model(
         model, self.model_sampling, self.model_padding, self.model_origins,
         self.free_surface)
+
     self.model = model
     self.model_sep = SepVector.getSepVector(
         Hypercube.hypercube(axes=[
@@ -556,8 +561,8 @@ class ElasticIsotropic3D(ElasticIsotropic):
 
     # Compute size of z_pad_plus
     if free_surface:
-      n_z_total = z_pad + n_z
-      z_pad = 0
+      n_z_total = self._FAT + z_pad + n_z
+      z_pad = self._FAT
     else:
       n_z_total = z_pad * 2 + n_z
     ratio_z = n_z_total / self._BLOCK_SIZE
