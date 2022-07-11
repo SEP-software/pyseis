@@ -39,7 +39,8 @@ SEP_PARAM_CYPHER = {
     'blockSize': '_BLOCK_SIZE',
     'fat': '_FAT',
     'ginsu': 'ginsu',
-    'freeSurface': 'free_surface'
+    'freeSurface': 'free_surface',
+    'surfaceCondition': 'free_surface'
 }
 COURANT_LIMIT = 0.45
 

@@ -198,18 +198,20 @@ class ElasticIsotropic2D(ElasticIsotropic):
                    'szz',
                    'sxz',
                ],
-               subsampling=None):
+               subsampling=None,
+               free_surface=False):
     super().__init__()
     self.wave_prop_cpp_op_class = _Ela2dWavePropCppOp
     self.required_sep_params = [
         'nx', 'dx', 'nz', 'dz', 'xPadMinus', 'xPadPlus', 'zPadMinus',
         'zPadPlus', 'mod_par', 'dts', 'nts', 'fMax', 'sub', 'nExp', 'iGpu',
-        'blockSize', 'fat'
+        'blockSize', 'fat', 'surfaceCondition'
     ]
 
     self.model_sampling = model_sampling
     self.model_padding = model_padding
     self.model_origins = model_origins
+    self.free_surface = free_surface
     self._make(model, wavelet, d_t, src_locations, rec_locations, gpus,
                recording_components, lame_model, subsampling)
 
@@ -218,7 +220,8 @@ class ElasticIsotropic2D(ElasticIsotropic):
       model = convert_to_lame(model)
     self.fd_param['mod_par'] = 1
     model, x_pad, x_pad_plus, new_o_x, z_pad, z_pad_plus, new_o_z = self._pad_model(
-        model, self.model_sampling, self.model_padding, self.model_origins)
+        model, self.model_sampling, self.model_padding, self.model_origins,
+        self.free_surface)
     self.model = model
     self.model_sep = SepVector.getSepVector(
         Hypercube.hypercube(axes=[
@@ -239,12 +242,14 @@ class ElasticIsotropic2D(ElasticIsotropic):
     self.fd_param['x_pad_plus'] = x_pad_plus
     self.fd_param['z_pad_minus'] = z_pad
     self.fd_param['z_pad_plus'] = z_pad_plus
+    self.fd_param['free_surface'] = int(self.free_surface)
 
   def _pad_model(self,
                  model,
                  model_sampling,
                  model_padding,
-                 model_origins=None):
+                 model_origins=None,
+                 free_surface=False):
     """Pad 2d model.
 
     Finds the correct padding on either end of the axis so both directions are
@@ -272,7 +277,11 @@ class ElasticIsotropic2D(ElasticIsotropic):
       model_origins = (0.0, 0.0)
 
     # Compute size of z_pad_plus
-    n_z_total = z_pad * 2 + n_z
+    if free_surface:
+      n_z_total = self._FAT + z_pad + n_z
+      z_pad = self._FAT
+    else:
+      n_z_total = z_pad * 2 + n_z
     ratio_z = n_z_total / self._BLOCK_SIZE
     nb_blockz = ceil(ratio_z)
     z_pad_plus = nb_blockz * self._BLOCK_SIZE - n_z - z_pad
@@ -457,18 +466,20 @@ class ElasticIsotropic3D(ElasticIsotropic):
                recording_components=[
                    'vx', 'vy', 'vz', 'sxx', 'syy', 'szz', 'sxz', 'sxy', 'syz'
                ],
-               subsampling=None):
+               subsampling=None,
+               free_surface=False):
     super().__init__()
     self.required_sep_params = [
         'ny', 'dy', 'nx', 'dx', 'nz', 'dz', 'yPad', 'xPadMinus', 'xPadPlus',
         'zPadMinus', 'zPadPlus', 'mod_par', 'dts', 'nts', 'fMax', 'sub', 'nExp',
-        'iGpu', 'blockSize', 'fat'
+        'iGpu', 'blockSize', 'fat', 'surfaceCondition'
     ]
     self.wave_prop_cpp_op_class = _Ela3dWavePropCppOp
 
     self.model_sampling = model_sampling
     self.model_padding = model_padding
     self.model_origins = model_origins
+    self.free_surface = free_surface
     self._make(model, wavelet, d_t, src_locations, rec_locations, gpus,
                recording_components, lame_model, subsampling)
 
@@ -478,7 +489,8 @@ class ElasticIsotropic3D(ElasticIsotropic):
 
     self.fd_param['mod_par'] = 1
     model, y_pad, y_pad_plus, new_o_y, x_pad, x_pad_plus, new_o_x, z_pad, z_pad_plus, new_o_z = self._pad_model(
-        model, self.model_sampling, self.model_padding, self.model_origins)
+        model, self.model_sampling, self.model_padding, self.model_origins,
+        self.free_surface)
     self.model = model
     self.model_sep = SepVector.getSepVector(
         Hypercube.hypercube(axes=[
@@ -505,12 +517,14 @@ class ElasticIsotropic3D(ElasticIsotropic):
     self.fd_param['x_pad_plus'] = x_pad_plus
     self.fd_param['z_pad_minus'] = z_pad
     self.fd_param['z_pad_plus'] = z_pad_plus
+    self.fd_param['free_surface'] = int(self.free_surface)
 
   def _pad_model(self,
                  model,
                  model_sampling,
                  model_padding,
-                 model_origins=None):
+                 model_origins=None,
+                 free_surface=False):
     """Pad 3d model.
 
     Finds the correct padding on either end of the axis so both directions are
@@ -541,7 +555,11 @@ class ElasticIsotropic3D(ElasticIsotropic):
       model_origins = (0.0, 0.0, 0.0)
 
     # Compute size of z_pad_plus
-    n_z_total = z_pad * 2 + n_z
+    if free_surface:
+      n_z_total = z_pad + n_z
+      z_pad = 0
+    else:
+      n_z_total = z_pad * 2 + n_z
     ratio_z = n_z_total / self._BLOCK_SIZE
     nb_blockz = ceil(ratio_z)
     z_pad_plus = nb_blockz * self._BLOCK_SIZE - n_z - z_pad
@@ -779,10 +797,10 @@ def convert_to_lame(model):
   converted_model = np.zeros_like(model)
 
   #VpVsRho to RhoLameMu (m/s|m/s|kg/m3 -> kg/m3|Pa|Pa)
-  converted_model[0] += model[2]  #rho
-  converted_model[1] += model[2] * (
+  converted_model[0] = model[2]  #rho
+  converted_model[1] = model[2] * (
       model[0] * model[0] - 2.0 * model[1] * model[1])  #lame
-  converted_model[2] += model[2] * model[1] * model[1]  #mu
+  converted_model[2] = model[2] * model[1] * model[1]  #mu
 
   return converted_model
 
