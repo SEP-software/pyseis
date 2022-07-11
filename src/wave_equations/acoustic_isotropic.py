@@ -18,7 +18,7 @@ Current implementation parallelizes shots over gpus.
       d_t,
       src_locations_nd_array,
       rec_locations_nd_array,
-      gpus=[0,1,2,4])
+      gpus=[0,1,2,3])
     data = acoustic_2d.fwd(vp_model_half_space)
 """
 import numpy as np
@@ -78,6 +78,9 @@ class AcousticIsotropic(wave_equation.WaveEquation):
 
     #set ginsu
     self.fd_param['ginsu'] = 0
+    # if ginsu:
+    #   raise NotImplementedError('ginsu')
+    #   self.fd_param['ginsu'] = 1
 
     # make and set sep par
     self._setup_sep_par(self.fd_param)
@@ -125,12 +128,13 @@ class AcousticIsotropic2D(AcousticIsotropic):
                gpus,
                model_padding=(50, 50),
                model_origins=(0.0, 0.0),
-               subsampling=None):
+               subsampling=None,
+               free_surface=False):
     super().__init__()
     self.required_sep_params = [
         'nx', 'dx', 'nz', 'dz', 'xPadMinus', 'xPadPlus', 'zPadMinus',
         'zPadPlus', 'dts', 'nts', 'fMax', 'sub', 'nShot', 'iGpu', 'blockSize',
-        'fat'
+        'fat', 'ginsu', 'freeSurface'
     ]
     self.wave_prop_cpp_op_class = _Aco2dWavePropCppOp
     self.ostream_redirect = ostream_redirect
@@ -138,12 +142,14 @@ class AcousticIsotropic2D(AcousticIsotropic):
     self.model_sampling = model_sampling
     self.model_padding = model_padding
     self.model_origins = model_origins
+    self.free_surface = free_surface
     self._make(model, wavelet, d_t, src_locations, rec_locations, gpus,
                subsampling)
 
   def _setup_model(self, model):
     model, x_pad, x_pad_plus, new_o_x, z_pad, z_pad_plus, new_o_z = self._pad_model(
-        model, self.model_sampling, self.model_padding, self.model_origins)
+        model, self.model_sampling, self.model_padding, self.model_origins,
+        self.free_surface)
     self.model = model
     self.model_sep = SepVector.getSepVector(
         Hypercube.hypercube(axes=[
@@ -161,12 +167,14 @@ class AcousticIsotropic2D(AcousticIsotropic):
     self.fd_param['x_pad_plus'] = x_pad_plus
     self.fd_param['z_pad_minus'] = z_pad
     self.fd_param['z_pad_plus'] = z_pad_plus
+    self.fd_param['free_surface'] = int(self.free_surface)
 
   def _pad_model(self,
                  model,
                  model_sampling,
                  model_padding,
-                 model_origins=None):
+                 model_origins=None,
+                 free_surface=False):
     """Pad 2d model.
 
     Finds the correct padding on either end of the axis so both directions are
@@ -194,7 +202,11 @@ class AcousticIsotropic2D(AcousticIsotropic):
       model_origins = (0.0, 0.0)
 
     # Compute size of z_pad_plus
-    n_z_total = z_pad * 2 + n_z
+    if free_surface:
+      n_z_total = z_pad + n_z
+      z_pad = 0
+    else:
+      n_z_total = z_pad * 2 + n_z
     ratio_z = n_z_total / self._BLOCK_SIZE
     nb_blockz = ceil(ratio_z)
     z_pad_plus = nb_blockz * self._BLOCK_SIZE - n_z - z_pad
@@ -321,12 +333,13 @@ class AcousticIsotropic3D(AcousticIsotropic):
                gpus,
                model_padding=(30, 30, 30),
                model_origins=(0.0, 0.0, 0.0),
-               subsampling=None):
+               subsampling=None,
+               free_surface=False):
     super().__init__()
     self.required_sep_params = [
         'nx', 'dx', 'nz', 'dz', 'ny', 'dy', 'xPadMinus', 'xPadPlus',
         'zPadMinus', 'zPadPlus', 'yPad', 'dts', 'nts', 'fMax', 'sub', 'nShot',
-        'iGpu', 'blockSize', 'fat', 'ginsu'
+        'iGpu', 'blockSize', 'fat', 'ginsu', 'freeSurface'
     ]
     self.wave_prop_cpp_op_class = _Aco3dWavePropCppOp
     self.ostream_redirect = ostream_redirect
@@ -334,13 +347,15 @@ class AcousticIsotropic3D(AcousticIsotropic):
     self.model_sampling = model_sampling
     self.model_padding = model_padding
     self.model_origins = model_origins
+    self.free_surface = free_surface
     self._make(model, wavelet, d_t, src_locations, rec_locations, gpus,
                subsampling)
 
   def _setup_model(self, model):
 
     model, y_pad, y_pad_plus, new_o_y, x_pad, x_pad_plus, new_o_x, z_pad, z_pad_plus, new_o_z = self._pad_model(
-        model, self.model_sampling, self.model_padding, self.model_origins)
+        model, self.model_sampling, self.model_padding, self.model_origins,
+        self.free_surface)
     self.model = model
     self.model_sep = SepVector.getSepVector(
         Hypercube.hypercube(axes=[
@@ -363,12 +378,14 @@ class AcousticIsotropic3D(AcousticIsotropic):
     self.fd_param['x_pad_plus'] = x_pad_plus
     self.fd_param['z_pad_minus'] = z_pad
     self.fd_param['z_pad_plus'] = z_pad_plus
+    self.fd_param['free_surface'] = int(self.free_surface)
 
   def _pad_model(self,
                  model,
                  model_sampling,
                  model_padding,
-                 model_origins=None):
+                 model_origins=None,
+                 free_surface=False):
     """Pad 3d model.
 
     Finds the correct padding on either end of the axis so both directions are
@@ -376,7 +393,7 @@ class AcousticIsotropic3D(AcousticIsotropic):
 
     Args:
         model (3d np array): 3d model to be padded. Should have shape
-          (n_x,n_z).
+          (n_y,n_x,n_z).
 
     Returns:
         3d np array: padded 2d model.
@@ -395,7 +412,11 @@ class AcousticIsotropic3D(AcousticIsotropic):
       model_origins = (0.0, 0.0, 0.0)
 
     # Compute size of z_pad_plus
-    n_z_total = z_pad * 2 + n_z
+    if free_surface:
+      n_z_total = z_pad + n_z
+      z_pad = 0
+    else:
+      n_z_total = z_pad * 2 + n_z
     ratio_z = n_z_total / self._BLOCK_SIZE
     nb_blockz = ceil(ratio_z)
     z_pad_plus = nb_blockz * self._BLOCK_SIZE - n_z - z_pad
@@ -426,7 +447,7 @@ class AcousticIsotropic3D(AcousticIsotropic):
 
   def _setup_src_devices(self, src_locations, n_t):
     """
-    src_locations - [n_src,(x_pos,z_pos)]
+    src_locations - [n_src,(y_pos,x_pos,z_pos)]
     """
     if self.model_sep is None:
       raise RuntimeError('self.model_sep must be set to set src devices')
