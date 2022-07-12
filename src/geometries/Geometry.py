@@ -48,7 +48,7 @@ class Streamer2D(Geometry):
     self.rec_positions = np.array([rec_x.T, rec_z.T]).T
 
 
-class Streamer3D(Geometry.Geometry):
+class Streamer3D(Geometry):
 
   def __init__(self, n_y_src: int, o_y_src: float, d_y_src: float, n_x_src: int,
                o_x_src: float, d_x_src: float, z_src: float, n_y_rec: int,
