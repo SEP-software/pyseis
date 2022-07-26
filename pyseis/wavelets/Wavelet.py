@@ -102,12 +102,9 @@ def calc_max_freq(arr, sampling_rate, min_db_threshold=-40.0):
   freqs, amps = spectra(arr, sampling_rate, mag="power_db_norm")
   # find max freq index
   max_ind = np.argmax(amps)
-  print(freqs[max_ind])
   # window out frequencies and amplitudes before max freq
   freqs = freqs[max_ind:]
   amps = amps[max_ind:]
-  print(freqs)
-  print(amps)
   # remove freqs below threshold
   freq_greater_than_threshold = freqs[amps > min_db_threshold]
   if len(freq_greater_than_threshold) == len(freqs):
