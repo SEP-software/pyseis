@@ -13,6 +13,6 @@ setup(
     install_requires=[
         'holoviews==1.14.6', 'opensimplex==0.4.2', 'numpy==1.20.1',
         'numba==0.54.1', 'matplotlib==3.3.4', 'scipy==1.6.2', 'h5py==2.10.0',
-        'selenium==4.3.0', 'tbb=2021.1.1'
+        'selenium==4.3.0', 'tbb==2021.1.1'
     ],
 )
