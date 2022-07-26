@@ -1,5 +1,5 @@
 import pytest
-from wave_equations import wave_equation
+from pyseis.wave_equations import wave_equation
 
 
 def test_WaveEquation_init_fails():

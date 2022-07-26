@@ -1,20 +1,21 @@
-from wavelets import Wavelet
+from pyseis.wavelets import Wavelet
 import numpy as np
 import SepVector
 import Hypercube
 
-N_WFLD_COMPONENTS = 5
+N_WFLD_COMPONENTS = 9
 
 
 def make_isotropic_components(trace: np.ndarray) -> np.ndarray:
   arr = np.zeros_like(trace)
   arr = np.repeat(np.expand_dims(arr, axis=0), N_WFLD_COMPONENTS, axis=0)
-  arr[2] = trace  #sxx
-  arr[3] = trace  #szz
+  arr[3] = trace  #syy
+  arr[4] = trace  #sxx
+  arr[5] = trace  #szz
   return arr
 
 
-class Elastic2D(Wavelet.Wavelet):
+class Elastic3D(Wavelet.Wavelet):
 
   def get_sep(self):
     wavelet_sep = SepVector.getSepVector(
@@ -24,11 +25,11 @@ class Elastic2D(Wavelet.Wavelet):
             Hypercube.axis(n=N_WFLD_COMPONENTS),
             Hypercube.axis(n=1)
         ]))
-    wavelet_sep.getNdArray()[0, :, 0, :] = self.arr
+    wavelet_sep.getNdArray().flat[:] = self.arr
     return wavelet_sep
 
 
-class ElasticIsotropicRicker2D(Elastic2D):
+class ElasticIsotropicRicker3D(Elastic3D):
 
   def __init__(self, n_t: int, d_t: float, dom_freq: float, delay: float):
     """doc
@@ -41,7 +42,7 @@ class ElasticIsotropicRicker2D(Elastic2D):
     super().__init__(arr, d_t)
 
 
-class ElasticIsotropicTrapezoid2D(Elastic2D):
+class ElasticIsotropicTrapezoid3D(Elastic3D):
 
   def __init__(self, n_t: int, d_t: float, f1: float, f2: float, f3: float,
                f4: float, delay: float):

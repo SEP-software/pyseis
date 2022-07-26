@@ -1,4 +1,4 @@
-from geometries import Geometry
+from pyseis.geometries import Geometry
 import numpy as np
 import pytest
 

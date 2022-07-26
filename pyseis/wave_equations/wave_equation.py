@@ -13,7 +13,7 @@ from math import ceil
 import genericIO
 import pyOperator as Operator
 from pyElastic_iso_float_nl_3D import ostream_redirect
-import wavelets.Wavelet as Wavelet
+from pyseis.wavelets import Wavelet
 
 SEP_PARAM_CYPHER = {
     'ny': 'n_y',

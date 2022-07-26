@@ -1,6 +1,6 @@
 import pytest
 import numpy as np
-from wavelets.elastic import Elastic2D
+from pyseis.wavelets.elastic import Elastic2D
 
 NT = 10000
 DT = 1 / 10e2

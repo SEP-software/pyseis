@@ -27,7 +27,7 @@ import abc
 import Hypercube
 import SepVector
 import pyOperator as Operator
-from wave_equations import wave_equation
+from pyseis.wave_equations import wave_equation
 # 2d pybind modules
 from pyElastic_iso_float_nl import spaceInterpGpu as device_gpu_2d
 from pyElastic_iso_float_nl import nonlinearPropElasticShotsGpu, ostream_redirect

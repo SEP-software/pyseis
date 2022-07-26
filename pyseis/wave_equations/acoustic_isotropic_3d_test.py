@@ -1,8 +1,8 @@
 from mock import patch
 import pytest
 import numpy as np
-from wave_equations import acoustic_isotropic
-from wavelets.acoustic import Acoustic3D
+from pyseis.wave_equations import acoustic_isotropic
+from pyseis.wavelets.acoustic import Acoustic3D
 
 N_Y = 51
 D_Y = 10.0
@@ -133,6 +133,7 @@ def test_fwd(trapezoid_wavelet, fixed_rec_locations, src_locations,
   assert not np.all((data == 0))
 
 
+@pytest.mark.gpu
 def test_init(trapezoid_wavelet, fixed_rec_locations, src_locations,
               vp_model_half_space):
   # Act
