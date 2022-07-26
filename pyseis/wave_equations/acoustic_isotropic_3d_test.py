@@ -133,6 +133,7 @@ def test_fwd(trapezoid_wavelet, fixed_rec_locations, src_locations,
   assert not np.all((data == 0))
 
 
+@pytest.mark.gpu
 def test_init(trapezoid_wavelet, fixed_rec_locations, src_locations,
               vp_model_half_space):
   # Act
