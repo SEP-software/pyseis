@@ -1,4 +1,4 @@
-from wavelets import Wavelet
+from pyseis.wavelets import Wavelet
 import numpy as np
 import SepVector
 import Hypercube

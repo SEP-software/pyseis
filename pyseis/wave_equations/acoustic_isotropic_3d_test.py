@@ -1,8 +1,8 @@
 from mock import patch
 import pytest
 import numpy as np
-from wave_equations import acoustic_isotropic
-from wavelets.acoustic import Acoustic3D
+from pyseis.wave_equations import acoustic_isotropic
+from pyseis.wavelets.acoustic import Acoustic3D
 
 N_Y = 51
 D_Y = 10.0

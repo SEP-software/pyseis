@@ -1,6 +1,6 @@
 import pytest
 import numpy as np
-from wavelets.acoustic import Acoustic2D
+from pyseis.wavelets.acoustic import Acoustic2D
 
 NT = 10000
 DT = 1 / 10e2

@@ -1,8 +1,8 @@
 from mock import patch
 import pytest
 import numpy as np
-from wave_equations import elastic_isotropic
-from wavelets.elastic import Elastic3D
+from pyseis.wave_equations import elastic_isotropic
+from pyseis.wavelets.elastic import Elastic3D
 
 N_Y = 51
 D_Y = 9.0

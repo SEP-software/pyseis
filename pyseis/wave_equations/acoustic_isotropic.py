@@ -25,7 +25,7 @@ import numpy as np
 from math import ceil
 import Hypercube
 import SepVector
-from wave_equations import wave_equation
+from pyseis.wave_equations import wave_equation
 # 2d pybind11 modules
 from pyAcoustic_iso_float_nl import deviceGpu as device_gpu_2d
 from pyAcoustic_iso_float_nl import nonlinearPropShotsGpu, ostream_redirect

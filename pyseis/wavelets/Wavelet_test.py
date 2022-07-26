@@ -1,6 +1,6 @@
 import pytest
 import numpy as np
-from wavelets import Wavelet
+from pyseis.wavelets import Wavelet
 
 NT = 10000
 OT = 0.0
