@@ -39,7 +39,7 @@ def spectra(arr, sampling_rate, average=True, mag='power'):
     freqs - np array - array of sample frequencies.
     spectra - np array - chosen spectrum of input signal
   """
-  fs = 1 / sampling_rate
+  fs = 1.0 / sampling_rate
   eps = 10**-100
 
   if mag == 'amplitude':
@@ -63,17 +63,22 @@ def spectra(arr, sampling_rate, average=True, mag='power'):
 
 
 def linear_spectra(arr, fs, average=True):
-  freqs, spectra = signal.welch(arr, fs=fs, nperseg=1024, scaling='spectrum')
+  freqs, spectra = signal.welch(arr,
+                                fs=fs,
+                                nperseg=arr.shape[-1],
+                                scaling='spectrum')
   if average and len(spectra.shape) > 1:
     spectra = np.mean(spectra, axis=tuple(range(len(spectra.shape) - 1)))
   return freqs, spectra
 
 
 def density_spectra(arr, fs, average=True):
-  freqs, spectra = signal.welch(arr,
-                                fs=fs,
-                                nperseg=min(1024, arr.shape[-1]),
-                                scaling='density')
+  freqs, spectra = signal.welch(
+      arr,
+      fs=fs,
+      # nperseg=min(1024, arr.shape[-1]),
+      nperseg=arr.shape[-1],
+      scaling='density')
   if average and len(spectra.shape) > 1:
     spectra = np.mean(spectra, axis=tuple(range(len(spectra.shape) - 1)))
   return freqs, spectra
@@ -97,9 +102,12 @@ def calc_max_freq(arr, sampling_rate, min_db_threshold=-40.0):
   freqs, amps = spectra(arr, sampling_rate, mag="power_db_norm")
   # find max freq index
   max_ind = np.argmax(amps)
+  print(freqs[max_ind])
   # window out frequencies and amplitudes before max freq
   freqs = freqs[max_ind:]
   amps = amps[max_ind:]
+  print(freqs)
+  print(amps)
   # remove freqs below threshold
   freq_greater_than_threshold = freqs[amps > min_db_threshold]
   if len(freq_greater_than_threshold) == len(freqs):
