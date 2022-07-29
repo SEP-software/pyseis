@@ -1,3 +1,3 @@
 singularity shell --nv --home $PWD --bind $DATAPATH \
-  --env PYTHONPATH="\$PYTHONPATH:${PWD}/src",DATAPATH=$DATAPATH \
-  external/containers/wave/wave_lib-cuda10.0_sep.sif
+  --env DATAPATH=$DATAPATH \
+  external/containers/pyseis/pyseis-wave_lib_cuda10.0_sep.sif

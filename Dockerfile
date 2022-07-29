@@ -7,8 +7,7 @@ RUN apt-get -y update
 RUN python -m pip install -U pip wheel setuptools 
 
 RUN git clone http://cees-gitlab.stanford.edu/sfarris/pyseis.git /opt/pyseis &&\
-  cd /opt/pyseis &&\
-  git checkout dev
+  cd /opt/pyseis 
 
 RUN cd /opt/pyseis && pip install -e . 
 

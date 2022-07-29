@@ -11,7 +11,7 @@ Download and install the following applications:
 2. initialize submodule.<br>
   `$ git submodule update --init -- external/containers` 
 3. pull singularity image.<br>
-  `$ cd external/containers && git lfs pull --include wave/wave_lib-cuda10.0_sep.sif --exclude "" && cd -` 
+  `$ cd external/containers && git lfs pull --include pyseis/pyseis-wave_lib_cuda10.0_sep.sif --exclude "" && cd -` 
 4. set your DATAPATH environment variable.<br>
   `$ export DATAPATH=<YOUR_DATA_PATH>`
 5. run singularity shell.<br>
