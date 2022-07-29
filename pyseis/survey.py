@@ -26,8 +26,7 @@ for WAVELET_MODULE in WAVELET_MODULES:
 
 GEOMETRY_TYPES = {
     name: value
-    for name, value in inspect.getmembers(Geometry)
-    if inspect.isclass(value)
+    for name, value in inspect.getmembers(Geometry) if inspect.isclass(value)
 }
 
 
@@ -114,9 +113,13 @@ def main(yaml_path):
   config['wave_equation'] = parsed_yaml['wave_equation']
 
   # initialize survey
-  test_survey = survey.Survey(model, config)
+  seismic_survey = survey.Survey(model, config)
 
-  #save data
+  # run survey
+  data = seismic_survey.fwd(model)
+
+  # save data
+  np.save(output_data_fn, data)
 
 
 if __name__ == "__main__":
