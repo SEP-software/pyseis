@@ -1,6 +1,6 @@
 import pytest
 import numpy as np
-from pysynth.data_gen import survey
+from pyseis import survey
 
 N_X = 100
 D_X = 10.0
@@ -107,7 +107,7 @@ def test_make_aquisition():
 def test_make_wavelet():
   wavelet = survey.Survey._make_wavelet(None, CONFIG_RICKER)
   # check src and rec positions
-  assert wavelet.get_arr().shape == (N_T,)
+  assert wavelet.get_arr().shape == (N_T, )
 
 
 @pytest.mark.gpu
