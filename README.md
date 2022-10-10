@@ -15,4 +15,4 @@ Download and install the following applications:
 4. set your DATAPATH environment variable.<br>
   `$ export DATAPATH=<YOUR_DATA_PATH>`
 5. run singularity shell.<br>
-  `$ ./run_singularity_shell.sh`
+  `$ ./scripts/run_singularity_shell.sh`
