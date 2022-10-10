@@ -9,3 +9,4 @@ src/*.yaml
 .cache
 .ipython
 .python_history
+*.egg-info
