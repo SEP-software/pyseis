@@ -15,5 +15,5 @@ sudo docker run -p 7001:7001 \
   -v $DATAPATH:$DATAPATH \
   -v $(pwd):$(pwd) \
   -w $(pwd) \
-  sfarris1994/pysynth:pyseis_wave_lib_v1 jupyter-lab --no-browser --port=7001 --ip 0.0.0.0
+  sfarris1994/pyseis:wave_lib_v1 jupyter-lab --no-browser --port=7001 --ip 0.0.0.0
 ```
