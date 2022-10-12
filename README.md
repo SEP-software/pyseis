@@ -11,9 +11,8 @@
 sudo docker run -p 7001:7001 \
   --gpus=all \
   -e LOCAL_USER_ID=`id -u $USER` \
-  -e DATAPATH=$DATAPATH \
-  -v $DATAPATH:$DATAPATH \
   -v $(pwd):$(pwd) \
   -w $(pwd) \
   sfarris1994/pyseis:wave_lib_v1 jupyter-lab --no-browser --port=7001 --ip 0.0.0.0
 ```
+3. Navigate to the jupyterlab at `http://127.0.0.1:7001` in your browser.
