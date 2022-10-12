@@ -3,11 +3,12 @@
 The ElasticIsotropic2D and ElasticIsotropic3D inherit from the abstract
 ElasticIsotropic class. ElasticIsotropic2D and ElasticIsotropic3D can model
 the elastic, isotropic wave equation in two and three dimensions, respectively,
-using a staggered-grid implementation. With a pressure-wave velocity model,
-source wavelet, source positions, and receiver positions, a user can forward
-model the wave wave equation and sample at receiver locations. Pybind11 is used
-to wrap C++ code which then uses CUDA kernels to execute finite difference
-operations. Current implementation parallelizes shots over gpus. 
+using a staggered-grid implementation. With an elastic earth model parameterized
+by (v_p, v_s, and rho), a source wavelet, source positions, and receiver
+positions, a user can forward model the wave wave equation and sample at
+receiver locations. Pybind11 is used to wrap C++ code which then uses CUDA 
+kernels to execute finite difference operations. Current implementation
+parallelizes shots over gpus. 
 
   Typical usage example:
     #### 2D ##### 
@@ -200,6 +201,41 @@ class ElasticIsotropic2D(ElasticIsotropic):
                ],
                subsampling=None,
                free_surface=False):
+    """
+    Args:
+        model (np array): un-padded earth model that is 2D. Can be parameterized
+          parameterized by wave velocity [vp,vs,rho] or lame parameters
+          [rho,lame,mu]. If using lame parameterization, make sure the
+          lame_model argument is set to True. Must have (3, n_x, n_z) shape.
+        model_sampling (tuple): spatial sampling of provided earth model
+          (d_x, d_z).
+        wavelet (np array): source signature of wave equation. Will have shape
+          (5, n_t) describing the five source components (Fx, Fz, sxx, szz, sxz)
+        d_t (float): temporal sampling rate (s) of recorded data NOT wave prop
+          (see subsampling).
+        src_locations (np array): coordinates of each seismic source to
+          propagate. Has shape (n_src, 3) where the fast axis describes the 
+          y, x, and z positions, respectively.  
+        rec_locations (np array): receiver locations of each src. The number of
+          receivers must be the same for each shot, but the position of the
+          receivers can change. Can either have shape (n_rec, 2) if the receiver
+          positions are constant or (n_src,n_rec,2) if the receiver positions 
+          change with each shot.
+        gpus (list): the numbered gpu devices to use for wave propagation e.g. [0,1]
+        model_padding (tuple, optional): desired amount of padding (in samples) to use at
+          propagation time to add on each axis of the earth model during wave
+          prop.
+        model_origins (tuple, optional): Origin of each axis of the earth
+          model. If None, the origins are assumed to be 0.0.
+        lame_model (bool, optional): Whether the provided model is parameterized
+          by wave velocity [vp,vs,rho] or lame parameters [rho,lame,mu].
+          Defaults to False.
+        subsampling (int, optional): rate to downsample d_t for wave prop time
+          marching. If not provided, is dynamically calculated in order for wave
+          prop to remain stable.
+        free_surface (bool, optional): whether or not to use a free surface
+          implementation.
+    """
     super().__init__()
     self.wave_prop_cpp_op_class = _Ela2dWavePropCppOp
     self.required_sep_params = [
@@ -468,6 +504,42 @@ class ElasticIsotropic3D(ElasticIsotropic):
                ],
                subsampling=None,
                free_surface=False):
+    """
+    Args:
+        model (np array): un-padded earth model that is 3D. Can be parameterized
+          parameterized by wave velocity [vp,vs,rho] or lame parameters
+          [rho,lame,mu]. If using lame parameterization, make sure the
+          lame_model argument is set to True. Must have (3, n_y, n_x, n_z) shape.
+        model_sampling (tuple): spatial sampling of provided earth model
+          (d_y, d_x, d_z).
+        wavelet (np array): source signature of wave equation. Will have shape
+          (9, n_t) describing the nine source components
+          (Fy, Fx, Fz, syy, sxx, szz, syx, syz, sxz)
+        d_t (float): temporal sampling rate (s) of recorded data NOT wave prop
+          (see subsampling).
+        src_locations (np array): coordinates of each seismic source to
+          propagate. Has (n_src, 3) where the fast axis describes the y, x, and
+          z positions, respectively.  
+        rec_locations (np array): receiver locations of each src. The number of
+          receivers must be the same for each shot, but the position of the
+          receivers can change. Can either have shape (n_rec, 3) if the receiver
+          positions are constant or (n_src,n_rec,3) if the receiver positions
+          change with each shot.
+        gpus (list): the numbered gpu devices to use for wave propagation e.g. [0,1]
+        model_padding (tuple, optional): desired amount of padding (in samples)
+          to use at propagation time to add on each axis of the earth model
+          during wave prop.
+        model_origins (tuple, optional): Origin of each axis of the earth
+          model. If None, the origins are assumed to be 0.0.
+        lame_model (bool, optional): Whether the provided model is parameterized
+          by wave velocity [vp,vs,rho] or lame parameters [rho,lame,mu].
+          Defaults to False.
+        subsampling (int, optional): rate to downsample d_t for wave prop time
+          marching. If not provided, is dynamically calculated in order for wave
+          prop to remain stable.
+        free_surface (bool, optional): whether or not to use a free surface
+          implementation.
+    """
     super().__init__()
     self.required_sep_params = [
         'ny', 'dy', 'nx', 'dx', 'nz', 'dz', 'yPad', 'xPadMinus', 'xPadPlus',
