@@ -2,7 +2,7 @@
 
 ## Software and hardware requirements
 * At least one NVIDIA gpu with CUDA Version >= 10.0
-Download and install the following applications:
+* [Docker](https://docs.docker.com/engine/install/)
 ## Getting started
 1. clone the repo.<br>
   `$ git clone http://cees-gitlab.stanford.edu/sfarris/pyseis.git && cd pyseis`
