@@ -123,7 +123,7 @@ class ElasticIsotropic(wave_equation.WaveEquation):
     if subsampling is not None:
       if subsampling < self.fd_param['sub']:
         raise RuntimeError(
-            f"User specified subsampling={subsampling} that will does not satisfy Courant condition. subsampling must be >={self.fd_param['sub']}"
+            f"User specified subsampling={subsampling} that does not satisfy Courant condition. subsampling must be >={self.fd_param['sub']}"
         )
       self.fd_param['sub'] = subsampling
     # set gpus list
@@ -136,9 +136,9 @@ class ElasticIsotropic(wave_equation.WaveEquation):
     self._setup_sep_par(self.fd_param)
 
     # make and set gpu operator
-    self._setup_wave_prop_operator(self.data_sep, self.model_sep,
-                                   self.sep_param, self.src_devices,
-                                   self.rec_devices, self.wavelet_sep)
+    self._setup_nl_wave_prop(self.data_sep, self.model_sep, self.sep_param,
+                             self.src_devices, self.rec_devices,
+                             self.wavelet_nl_sep)
 
     # append wavefield sampling to gpu operator
     self._setup_wavefield_sampling_operator(recording_components, self.data_sep)
@@ -441,18 +441,27 @@ class ElasticIsotropic2D(ElasticIsotropic):
 
     self.data_sep = data_sep
 
-  def _make_sep_wavelet(self, wavelet, d_t):
+  def _make_sep_wavelets(self, wavelet, d_t):
     n_t = wavelet.shape[-1]
-    wavelet_sep = SepVector.getSepVector(
+    wavelet_nl_sep = SepVector.getSepVector(
         Hypercube.hypercube(axes=[
             Hypercube.axis(n=n_t, o=0.0, d=d_t),
             Hypercube.axis(n=1),
             Hypercube.axis(n=self._N_WFLD_COMPONENTS),
             Hypercube.axis(n=1)
         ]))
-    wavelet_sep.getNdArray()[0, :, 0, :] = wavelet
+    wavelet_nl_sep.getNdArray()[0, :, 0, :] = wavelet
 
-    return wavelet_sep
+    wavelet_lin_sep = SepVector.getSepVector(
+        Hypercube.hypercube(axes=[
+            Hypercube.axis(n=n_t, o=0.0, d=d_t),
+            Hypercube.axis(n=self._N_WFLD_COMPONENTS),
+            Hypercube.axis(n=1)
+        ]))
+    wavelet_lin_sep.getNdArray()[:] = wavelet
+    wavelet_lin_sep = [wavelet_lin_sep.getCpp()]
+
+    return wavelet_nl_sep, wavelet_lin_sep
 
   def _make_staggered_grid_hypers(self, n_x, n_z, o_x, o_z, d_x, d_z):
     z_axis = Hypercube.axis(n=n_z, o=o_z, d=d_z)
@@ -789,18 +798,27 @@ class ElasticIsotropic3D(ElasticIsotropic):
 
     self.data_sep = data_sep
 
-  def _make_sep_wavelet(self, wavelet, d_t):
+  def _make_sep_wavelets(self, wavelet, d_t):
     n_t = wavelet.shape[-1]
-    wavelet_sep = SepVector.getSepVector(
+    wavelet_nl_sep = SepVector.getSepVector(
         Hypercube.hypercube(axes=[
             Hypercube.axis(n=n_t, o=0.0, d=d_t),
             Hypercube.axis(n=1),
             Hypercube.axis(n=self._N_WFLD_COMPONENTS),
             Hypercube.axis(n=1)
         ]))
-    wavelet_sep.getNdArray().flat[:] = wavelet
+    wavelet_nl_sep.getNdArray().flat[:] = wavelet
 
-    return wavelet_sep
+    wavelet_lin_sep = SepVector.getSepVector(
+        Hypercube.hypercube(axes=[
+            Hypercube.axis(n=n_t, o=0.0, d=d_t),
+            Hypercube.axis(n=1),
+            Hypercube.axis(n=self._N_WFLD_COMPONENTS)
+        ]))
+    wavelet_lin_sep.getNdArray().flat[:] = wavelet
+    wavelet_lin_sep = [wavelet_lin_sep.getCpp()]
+
+    return wavelet_nl_sep, wavelet_lin_sep
 
   def _make_staggered_grid_hypers(self, n_y, n_x, n_z, o_y, o_x, o_z, d_y, d_x,
                                   d_z):
@@ -844,7 +862,7 @@ class ElasticIsotropic3D(ElasticIsotropic):
                                                    wavefield_sampling_operator)
 
 
-class _Ela2dWavePropCppOp(wave_equation._WavePropCppOp):
+class _Ela2dWavePropCppOp(wave_equation._NonlinearWaveCppOp):
   """Wrapper encapsulating PYBIND11 module for the wave propagator"""
 
   wave_prop_module = nonlinearPropElasticShotsGpu
@@ -854,7 +872,7 @@ class _Ela2dWavePropCppOp(wave_equation._WavePropCppOp):
       self.wave_prop_operator.setBackground(model_sep.getCpp())
 
 
-class _Ela3dWavePropCppOp(wave_equation._WavePropCppOp):
+class _Ela3dWavePropCppOp(wave_equation._NonlinearWaveCppOp):
   """Wrapper encapsulating PYBIND11 module for the wave propagator"""
 
   wave_prop_module = nonlinearPropElasticShotsGpu_3D

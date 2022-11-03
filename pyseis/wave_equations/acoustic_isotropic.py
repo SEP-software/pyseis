@@ -86,9 +86,9 @@ class AcousticIsotropic(wave_equation.WaveEquation):
     self._setup_sep_par(self.fd_param)
 
     # make and set gpu operator
-    self._setup_wave_prop_operator(self.data_sep, self.model_sep,
-                                   self.sep_param, self.src_devices,
-                                   self.rec_devices, self.wavelet_sep)
+    self._setup_nl_wave_prop(self.data_sep, self.model_sep, self.sep_param,
+                             self.src_devices, self.rec_devices,
+                             self.wavelet_nl_sep)
 
   def _setup_subsampling(self, model, d_t, model_sampling):
     sub = self._calc_subsampling(model, d_t, model_sampling)
@@ -307,17 +307,31 @@ class AcousticIsotropic2D(AcousticIsotropic):
 
     self.data_sep = data_sep
 
-  def _make_sep_wavelet(self, wavelet, d_t):
+  def _make_sep_wavelets(self, wavelet, d_t):
+    '''for backwards compartibility with the c++ codebase, the nonlinear and the 
+    linear operators exopect different shaped wavelet
+    '''
+    #the 2d acoustic code uses a 3d sepvector for nonlinear prop and a list
+    #containing a single, 2d sepvector for linear prop.
     n_t = wavelet.shape[-1]
-    wavelet_sep = SepVector.getSepVector(
+    #make wavelet for nonlinear wave prop
+    wavelet_nl_sep = SepVector.getSepVector(
         Hypercube.hypercube(axes=[
             Hypercube.axis(n=n_t, o=0.0, d=d_t),
             Hypercube.axis(n=1),
             Hypercube.axis(n=1)
         ]))
-    wavelet_sep.getNdArray()[:] = wavelet
+    wavelet_nl_sep.getNdArray()[:] = wavelet
+    #make wavelet for linear wave prop
+    wavelet_lin_sep = SepVector.getSepVector(
+        Hypercube.hypercube(axes=[
+            Hypercube.axis(n=n_t, o=0.0, d=d_t),
+            Hypercube.axis(n=1),
+        ]))
+    wavelet_lin_sep.getNdArray()[:] = wavelet
+    wavelet_lin_sep = [wavelet_lin_sep.getCpp()]
 
-    return wavelet_sep
+    return wavelet_nl_sep, wavelet_lin_sep
 
 
 class AcousticIsotropic3D(AcousticIsotropic):
@@ -547,18 +561,21 @@ class AcousticIsotropic3D(AcousticIsotropic):
 
     self.data_sep = data_sep
 
-  def _make_sep_wavelet(self, wavelet, d_t):
+  def _make_sep_wavelets(self, wavelet, d_t):
     n_t = wavelet.shape[-1]
-    wavelet_sep = SepVector.getSepVector(
+    wavelet_nl_sep = SepVector.getSepVector(
         Hypercube.hypercube(
             axes=[Hypercube.axis(n=n_t, o=0.0, d=d_t),
                   Hypercube.axis(n=1)]))
-    wavelet_sep.getNdArray()[:] = wavelet
+    wavelet_nl_sep.getNdArray()[:] = wavelet
 
-    return wavelet_sep
+    #the 3d acoustic code uses the same wavelet object for nonlinear and linear
+    wavelet_lin_sep = wavelet_nl_sep.getCpp()
+
+    return wavelet_nl_sep, wavelet_lin_sep
 
 
-class _Aco2dWavePropCppOp(wave_equation._WavePropCppOp):
+class _Aco2dWavePropCppOp(wave_equation._NonlinearWaveCppOp):
   """Wrapper encapsulating PYBIND11 module for the wave propagator"""
 
   wave_prop_module = nonlinearPropShotsGpu
@@ -568,7 +585,7 @@ class _Aco2dWavePropCppOp(wave_equation._WavePropCppOp):
       self.wave_prop_operator.setVel(model_sep.getCpp())
 
 
-class _Aco3dWavePropCppOp(wave_equation._WavePropCppOp):
+class _Aco3dWavePropCppOp(wave_equation._NonlinearWaveCppOp):
   """Wrapper encapsulating PYBIND11 module for the wave propagator"""
 
   wave_prop_module = nonlinearPropShotsGpu_3D

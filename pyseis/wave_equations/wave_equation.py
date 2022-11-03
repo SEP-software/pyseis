@@ -45,7 +45,7 @@ SEP_PARAM_CYPHER = {
 COURANT_LIMIT = 0.45
 
 
-class WaveEquation(abc.ABC, Operator.Operator):
+class WaveEquation(abc.ABC):
 
   def __init__(self):
     self.model_sep = None
@@ -57,15 +57,18 @@ class WaveEquation(abc.ABC, Operator.Operator):
     return np.copy(self.data_sep.getNdArray())
     # return self.data_sep.getNdArray()
 
-  def forward(self, add, model_sep, data_sep):
-    with self.ostream_redirect():
-      self.wave_prop_cpp_op.forward(0, model_sep, data_sep)
+  # def fwd_linear(self,model):s
+
+  # def forward(self, add, model_sep, data_sep):
+  #   with self.ostream_redirect():
+  #     self.wave_prop_cpp_op.forward(0, model_sep, data_sep)
 
   def _setup_wavelet(self, wavelet, d_t):
     self.fd_param['d_t'] = d_t
     self.fd_param['n_t'] = wavelet.shape[-1]
     self.fd_param['f_max'] = Wavelet.calc_max_freq(wavelet, d_t)
-    self.wavelet_sep = self._make_sep_wavelet(wavelet, d_t)
+    self.wavelet_nl_sep, self.wavelet_lin_sep = self._make_sep_wavelets(
+        wavelet, d_t)
 
   def _setup_sep_par(self, fd_param):
     sep_param_dict = {}
@@ -94,16 +97,16 @@ class WaveEquation(abc.ABC, Operator.Operator):
 
     return genericIO.io(params=kwargs_str)
 
-  def _setup_wave_prop_operator(self, data_sep, model_sep, sep_par, src_devices,
-                                rec_devices, wavelet_sep):
+  def _setup_nl_wave_prop(self, data_sep, model_sep, sep_par, src_devices,
+                          rec_devices, wavelet_nl_sep):
     self.wave_prop_cpp_op = self.wave_prop_cpp_op_class(model_sep, data_sep,
                                                         sep_par, src_devices,
                                                         rec_devices,
-                                                        wavelet_sep)
-    self.setDomainRange(model_sep, data_sep)
+                                                        wavelet_nl_sep)
+    # self.setDomainRange(model_sep, data_sep)
 
   @abc.abstractmethod
-  def _make_sep_wavelet(self, wavelet, d_t):
+  def _make_sep_wavelets(self, wavelet, d_t):
     pass
 
   @abc.abstractmethod
@@ -137,11 +140,11 @@ class WaveEquation(abc.ABC, Operator.Operator):
     pass
 
 
-class _WavePropCppOp(abc.ABC, Operator.Operator):
+class _NonlinearWaveCppOp(abc.ABC, Operator.Operator):
   """Wrapper encapsulating PYBIND11 module for the wave propagator"""
 
   def __init__(self, model_sep, data_sep, sep_par, src_devices, rec_devices,
-               wavelet_sep):
+               wavelet_nl_sep):
     self.setDomainRange(model_sep, data_sep)
     if not isinstance(src_devices[0], list):
       src_devices = [src_devices]
@@ -150,13 +153,47 @@ class _WavePropCppOp(abc.ABC, Operator.Operator):
     self.wave_prop_operator = self.wave_prop_module(model_sep.getCpp(),
                                                     sep_par.param, *src_devices,
                                                     *rec_devices)
-    self.wavelet_sep = wavelet_sep
+    self.wavelet_nl_sep = wavelet_nl_sep
 
   def forward(self, add, model_sep, data_sep):
     #Setting elastic model parameters
     self.set_background(model_sep)
     with ostream_redirect():
-      self.wave_prop_operator.forward(add, self.wavelet_sep.getCpp(),
+      self.wave_prop_operator.forward(add, self.wavelet_nl_sep.getCpp(),
+                                      data_sep.getCpp())
+
+  @abc.abstractmethod
+  def set_background(self, model_sep):
+    pass
+
+
+class _LinearWaveCppOp(abc.ABC, Operator.Operator):
+  """Wrapper encapsulating PYBIND11 module for the wave propagator"""
+
+  def __init__(self, model_sep, data_sep, sep_par, src_devices, rec_devices,
+               wavelet_lin_sep):
+    self.setDomainRange(model_sep, data_sep)
+    if not isinstance(src_devices[0], list):
+      src_devices = [src_devices]
+    if not isinstance(rec_devices[0], list):
+      rec_devices = [rec_devices]
+    self.wave_prop_operator = self.wave_prop_module(model_sep.getCpp(),
+                                                    sep_par.param, *src_devices,
+                                                    wavelet_lin_sep,
+                                                    *rec_devices)
+
+  def forward(self, add, model_sep, data_sep):
+    #Setting elastic model parameters
+    self.set_background(model_sep)
+    with ostream_redirect():
+      self.wave_prop_operator.forward(add, model_sep.getCpp(),
+                                      data_sep.getCpp())
+
+  def adjoint(self, add, model_sep, data_sep):
+    #Setting elastic model parameters
+    self.set_background(model_sep)
+    with ostream_redirect():
+      self.wave_prop_operator.adjoint(add, model_sep.getCpp(),
                                       data_sep.getCpp())
 
   @abc.abstractmethod
