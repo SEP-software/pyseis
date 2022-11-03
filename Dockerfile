@@ -1,4 +1,4 @@
-FROM sfarris1994/wave_lib:cuda10.0_sep_v1
+FROM sfarris1994/wave_lib:20221103-105904PDT-4bd5d56
 
 USER root
 ARG DEBIAN_FRONTEND=noninteractive
