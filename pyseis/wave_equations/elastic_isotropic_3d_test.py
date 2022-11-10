@@ -1,8 +1,10 @@
 from mock import patch
 import pytest
 import numpy as np
-from pyseis.wave_equations import elastic_isotropic
+from pyseis.wave_equations import elastic_isotropic, wave_equation
 from pyseis.wavelets.elastic import Elastic3D
+import SepVector
+import pySepVector
 
 N_Y = 51
 D_Y = 9.0
@@ -136,7 +138,7 @@ def test_fwd_vel_components(trapezoid_wavelet, fixed_rec_locations,
       recording_components=recording_components)
 
   # Act
-  data = elastic_3d.fwd(vp_vs_rho_model_3d)
+  data = elastic_3d.forward(vp_vs_rho_model_3d)
 
   # Assert
   assert data.shape == (N_SRCS, len(recording_components), N_REC * N_REC, N_T)
@@ -157,7 +159,7 @@ def test_fwd(trapezoid_wavelet, fixed_rec_locations, src_locations,
       gpus=I_GPUS)
 
   # Act
-  data = elastic_3d.fwd(vp_vs_rho_model_3d)
+  data = elastic_3d.forward(vp_vs_rho_model_3d)
 
   # Assert
   assert data.shape == (N_SRCS, N_WFLD_COMPONENTS, N_REC * N_REC, N_T)
@@ -203,6 +205,11 @@ def test_setup_wavelet(trapezoid_wavelet):
                                                       None)
     # Act
     elastic_3d._setup_wavelet(trapezoid_wavelet, D_T)
+
+    # assert
+    assert isinstance(elastic_3d.wavelet_nl_sep, SepVector.floatVector)
+    assert isinstance(elastic_3d.wavelet_lin_sep, list)
+    assert isinstance(elastic_3d.wavelet_lin_sep[0], pySepVector.float3DReg)
 
 
 def test_setup_data(variable_rec_locations, src_locations, vp_vs_rho_model_3d):
@@ -472,3 +479,33 @@ def test_pad_model(vp_vs_rho_model_3d):
     end_z = start_z + N_Z
     assert np.allclose(model[:, start_y:end_y, start_x:end_x, start_z:end_z],
                        vp_vs_rho_model_3d)
+
+
+###############################################
+#### ElasticIsotropic3D Born tests ###########
+###############################################
+@pytest.mark.gpu
+def test_init_linear(trapezoid_wavelet, fixed_rec_locations, src_locations,
+                     vp_vs_rho_model_3d):
+  # Arrange
+  elastic_3d = elastic_isotropic.ElasticIsotropic3D(
+      model=vp_vs_rho_model_3d,
+      model_sampling=(D_Y, D_X, D_Z),
+      model_padding=(N_Y_PAD, N_X_PAD, N_Z_PAD),
+      wavelet=trapezoid_wavelet,
+      d_t=D_T,
+      src_locations=src_locations,
+      rec_locations=fixed_rec_locations,
+      gpus=I_GPUS)
+
+  #assert
+  assert elastic_3d._jac_wave_op == None
+
+  # act
+  elastic_3d._setup_jac_wave_op(elastic_3d.data_sep, elastic_3d.model_sep,
+                                elastic_3d.sep_param, elastic_3d.src_devices,
+                                elastic_3d.rec_devices,
+                                elastic_3d.wavelet_lin_sep)
+
+  # assert
+  assert isinstance(elastic_3d._jac_wave_op, wave_equation._JacobianWaveCppOp)

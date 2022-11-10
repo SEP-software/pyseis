@@ -26,7 +26,8 @@ for WAVELET_MODULE in WAVELET_MODULES:
 
 GEOMETRY_TYPES = {
     name: value
-    for name, value in inspect.getmembers(Geometry) if inspect.isclass(value)
+    for name, value in inspect.getmembers(Geometry)
+    if inspect.isclass(value)
 }
 
 
@@ -76,8 +77,8 @@ class Survey():
       raise RuntimeError(f'{wavelet_type} is not a supported wavelet type')
     return WAVELET_TYPES[wavelet_type](**wavelet_args)
 
-  def fwd(self, model):
-    data = self.wave_equation.fwd(model)
+  def forward(self, model):
+    data = self.wave_equation.forward(model)
     return data
 
 
@@ -116,7 +117,7 @@ def main(yaml_path):
   seismic_survey = survey.Survey(model, config)
 
   # run survey
-  data = seismic_survey.fwd(model)
+  data = seismic_survey.forward(model)
 
   # save data
   np.save(output_data_fn, data)

@@ -107,7 +107,7 @@ def test_make_aquisition():
 def test_make_wavelet():
   wavelet = survey.Survey._make_wavelet(None, CONFIG_RICKER)
   # check src and rec positions
-  assert wavelet.get_arr().shape == (N_T, )
+  assert wavelet.get_arr().shape == (N_T,)
 
 
 @pytest.mark.gpu
@@ -131,7 +131,7 @@ def test_init(vp_model):
 @pytest.mark.gpu
 def test_fwd(vp_model):
   test_survey = survey.Survey(vp_model, CONFIG)
-  data = test_survey.fwd(vp_model)
+  data = test_survey.forward(vp_model)
 
   assert data.shape == (N_SRC_FULL, N_REC_FULL, N_T)
   assert np.amax(data) > 0.0
@@ -140,8 +140,8 @@ def test_fwd(vp_model):
 @pytest.mark.gpu
 def test_fwd_diff_model_make_diff_data(vp_model, vp_model2):
   test_survey = survey.Survey(vp_model, CONFIG)
-  data1 = test_survey.fwd(vp_model)
-  data2 = test_survey.fwd(vp_model2)
+  data1 = test_survey.forward(vp_model)
+  data2 = test_survey.forward(vp_model2)
   max_data = max(np.abs(np.amax(data1)), np.abs(np.amax(data2)))
   print(max_data)
 

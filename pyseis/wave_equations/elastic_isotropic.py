@@ -20,7 +20,7 @@ parallelizes shots over gpus.
       src_locations_nd_array,
       rec_locations_nd_array,
       gpus=[0,1,2,4])
-    data = Elastic_2d.fwd(vp_model_half_space)
+    data = Elastic_2d.forward(vp_model_half_space)
 """
 import numpy as np
 from math import ceil
@@ -32,10 +32,12 @@ from pyseis.wave_equations import wave_equation
 # 2d pybind modules
 from pyElastic_iso_float_nl import spaceInterpGpu as device_gpu_2d
 from pyElastic_iso_float_nl import nonlinearPropElasticShotsGpu, ostream_redirect
+from pyElastic_iso_float_born import BornElasticShotsGpu
 from dataCompModule import ElasticDatComp as _ElasticDatComp2D
 # 3d pybind modules
 from pyElastic_iso_float_nl_3D import spaceInterpGpu_3D as device_gpu_3d
 from pyElastic_iso_float_nl_3D import nonlinearPropElasticShotsGpu_3D
+from pyElastic_iso_float_born_3D import BornElasticShotsGpu_3D
 from dataCompModule_3D import ElasticDatComp_3D as _ElasticDatComp_3D
 
 
@@ -136,9 +138,9 @@ class ElasticIsotropic(wave_equation.WaveEquation):
     self._setup_sep_par(self.fd_param)
 
     # make and set gpu operator
-    self._setup_nl_wave_prop(self.data_sep, self.model_sep, self.sep_param,
-                             self.src_devices, self.rec_devices,
-                             self.wavelet_nl_sep)
+    self._setup_nl_wave_op(self.data_sep, self.model_sep, self.sep_param,
+                           self.src_devices, self.rec_devices,
+                           self.wavelet_nl_sep)
 
     # append wavefield sampling to gpu operator
     self._setup_wavefield_sampling_operator(recording_components, self.data_sep)
@@ -237,7 +239,8 @@ class ElasticIsotropic2D(ElasticIsotropic):
           implementation.
     """
     super().__init__()
-    self.wave_prop_cpp_op_class = _Ela2dWavePropCppOp
+    self._nl_wave_pybind_class = nonlinearPropElasticShotsGpu
+    self._jac_wave_pybind_class = BornElasticShotsGpu
     self.required_sep_params = [
         'nx', 'dx', 'nz', 'dz', 'xPadMinus', 'xPadPlus', 'zPadMinus',
         'zPadPlus', 'mod_par', 'dts', 'nts', 'fMax', 'sub', 'nExp', 'iGpu',
@@ -280,6 +283,28 @@ class ElasticIsotropic2D(ElasticIsotropic):
     self.fd_param['z_pad_plus'] = z_pad_plus
     self.fd_param['surface_condition'] = int(self.free_surface)
 
+  def _setup_lin_model(self, lin_model):
+    lin_model, x_pad, x_pad_plus, new_o_x, z_pad, z_pad_plus, new_o_z = self._pad_model(
+        lin_model, self.model_sampling, self.model_padding, self.model_origins,
+        self.free_surface)
+    self.lin_model = lin_model
+    self.lin_model_sep = SepVector.getSepVector(
+        Hypercube.hypercube(axes=[
+            Hypercube.axis(
+                n=lin_model.shape[2], o=new_o_z, d=self.model_sampling[1]),
+            Hypercube.axis(
+                n=lin_model.shape[1], o=new_o_x, d=self.model_sampling[0]),
+            Hypercube.axis(n=lin_model.shape[0], o=0.0, d=1.0)
+        ]))
+    self.lin_model_sep.getNdArray()[:] = self.lin_model
+
+  def _truncate_model(self, model):
+    x_pad = self.fd_param['x_pad_minus'] + self._FAT
+    x_pad_plus = self.fd_param['x_pad_plus'] + self._FAT
+    z_pad = self.fd_param['z_pad_minus'] + self._FAT
+    z_pad_plus = self.fd_param['z_pad_plus'] + self._FAT
+    return model[:, x_pad:-x_pad_plus:, z_pad:-z_pad_plus:]
+
   def _pad_model(self,
                  model,
                  model_sampling,
@@ -309,8 +334,7 @@ class ElasticIsotropic2D(ElasticIsotropic):
     n_z = model.shape[2]
     d_z = model_sampling[1]
     z_pad = model_padding[1]
-    if model_origins is None:
-      model_origins = (0.0, 0.0)
+    model_origins = model_origins or (0.0, 0.0)
 
     # Compute size of z_pad_plus
     if free_surface:
@@ -490,8 +514,8 @@ class ElasticIsotropic2D(ElasticIsotropic):
                                                     data_sep)
     self.data_sep = wavefield_sampling_operator.range.clone()
 
-    self.wave_prop_cpp_op = Operator.ChainOperator(self.wave_prop_cpp_op,
-                                                   wavefield_sampling_operator)
+    self._nl_wave_op = Operator.ChainOperator(self._nl_wave_op,
+                                              wavefield_sampling_operator)
 
 
 class ElasticIsotropic3D(ElasticIsotropic):
@@ -555,7 +579,8 @@ class ElasticIsotropic3D(ElasticIsotropic):
         'zPadMinus', 'zPadPlus', 'mod_par', 'dts', 'nts', 'fMax', 'sub', 'nExp',
         'iGpu', 'blockSize', 'fat', 'freeSurface'
     ]
-    self.wave_prop_cpp_op_class = _Ela3dWavePropCppOp
+    self._nl_wave_pybind_class = nonlinearPropElasticShotsGpu_3D
+    self._jac_wave_pybind_class = BornElasticShotsGpu_3D
 
     self.model_sampling = model_sampling
     self.model_padding = model_padding
@@ -637,8 +662,7 @@ class ElasticIsotropic3D(ElasticIsotropic):
     n_z = model.shape[3]
     d_z = model_sampling[2]
     z_pad = model_padding[2]
-    if model_origins is None:
-      model_origins = (0.0, 0.0, 0.0)
+    model_origins = model_origins or (0.0, 0.0, 0.0)
 
     # Compute size of z_pad_plus
     if free_surface:
@@ -858,28 +882,43 @@ class ElasticIsotropic3D(ElasticIsotropic):
                                                      data_sep)
     self.data_sep = wavefield_sampling_operator.range.clone()
 
-    self.wave_prop_cpp_op = Operator.ChainOperator(self.wave_prop_cpp_op,
-                                                   wavefield_sampling_operator)
+    self._nl_wave_op = Operator.ChainOperator(self._nl_wave_op,
+                                              wavefield_sampling_operator)
 
 
-class _Ela2dWavePropCppOp(wave_equation._NonlinearWaveCppOp):
-  """Wrapper encapsulating PYBIND11 module for the wave propagator"""
+# class _Ela2dNonlinearWaveCppOp(wave_equation._NonlinearWaveCppOp):
+#   """Wrapper encapsulating PYBIND11 module for the wave propagator"""
 
-  wave_prop_module = nonlinearPropElasticShotsGpu
+#   wave_prop_module = nonlinearPropElasticShotsGpu
 
-  def set_background(self, model_sep):
-    with ostream_redirect():
-      self.wave_prop_operator.setBackground(model_sep.getCpp())
+#   def set_background(self, model_sep):
+#     with ostream_redirect():
+#       self.wave_prop_operator.setBackground(model_sep.getCpp())
 
+# class _Ela3dNonlinearWaveCppOp(wave_equation._NonlinearWaveCppOp):
+#   """Wrapper encapsulating PYBIND11 module for the wave propagator"""
 
-class _Ela3dWavePropCppOp(wave_equation._NonlinearWaveCppOp):
-  """Wrapper encapsulating PYBIND11 module for the wave propagator"""
+#   wave_prop_module = nonlinearPropElasticShotsGpu_3D
 
-  wave_prop_module = nonlinearPropElasticShotsGpu_3D
+#   def set_background(self, model_sep):
+#     with ostream_redirect():
+#       self.wave_prop_operator.setBackground(model_sep.getCpp())
 
-  def set_background(self, model_sep):
-    with ostream_redirect():
-      self.wave_prop_operator.setBackground(model_sep.getCpp())
+# class _Ela2dJacobianWaveCppOp(wave_equation._JacobianWaveCppOp):
+
+#   wave_prop_module = BornElasticShotsGpu
+
+#   def set_background(self, model_sep):
+#     with ostream_redirect():
+#       self.wave_prop_operator.setBackground(model_sep.getCpp())
+
+# class _Ela3dJacobianWaveCppOp(wave_equation._JacobianWaveCppOp):
+
+#   wave_prop_module = BornElasticShotsGpu_3D
+
+#   def set_background(self, model_sep):
+#     with ostream_redirect():
+#       self.wave_prop_operator.setBackground(model_sep.getCpp())
 
 
 def convert_to_lame(model):

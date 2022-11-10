@@ -1,8 +1,10 @@
 from mock import patch
 import pytest
 import numpy as np
-from pyseis.wave_equations import elastic_isotropic
+from pyseis.wave_equations import elastic_isotropic, wave_equation
 from pyseis.wavelets.elastic import Elastic2D
+import SepVector
+import pySepVector
 
 N_X = 100
 D_X = 10.0
@@ -10,7 +12,8 @@ N_Z = 50
 D_Z = 5.0
 N_X_PAD = 25
 N_Z_PAD = 20
-V_P = 2500
+V_P1 = 2500
+V_P2 = 2750
 V_S = 1500
 RHO = 1000
 
@@ -68,7 +71,9 @@ def variable_rec_locations(src_locations):
 
 @pytest.fixture
 def vp_vs_rho_model_2d():
-  vp_2d = V_P * np.ones((N_X, N_Z))
+  vp_2d = np.zeros((N_X, N_Z))
+  vp_2d[..., :N_Z // 2] = V_P1
+  vp_2d[..., N_Z // 2:] = V_P2
   vs_2d = V_S * np.ones((N_X, N_Z))
   rho_2d = RHO * np.ones((N_X, N_Z))
 
@@ -106,7 +111,7 @@ def test_fwd(ricker_wavelet, fixed_rec_locations, src_locations,
       rec_locations=fixed_rec_locations,
       gpus=I_GPUS)
   # Act
-  data = elastic_2d.fwd(vp_vs_rho_model_2d)
+  data = elastic_2d.forward(vp_vs_rho_model_2d)
 
   # Assert
   assert data.shape == (N_SRCS, N_WFLD_COMPONENTS, N_REC, N_T)
@@ -153,6 +158,11 @@ def test_setup_wavelet(ricker_wavelet):
 
     # Act
     elastic_2d._setup_wavelet(ricker_wavelet, D_T)
+
+    # assert
+    assert isinstance(elastic_2d.wavelet_nl_sep, SepVector.floatVector)
+    assert isinstance(elastic_2d.wavelet_lin_sep, list)
+    assert isinstance(elastic_2d.wavelet_lin_sep[0], pySepVector.float3DReg)
 
 
 def test_setup_data(variable_rec_locations, src_locations, vp_vs_rho_model_2d):
@@ -392,3 +402,89 @@ def test_pad_model(vp_vs_rho_model_2d):
     end_z = start_z + N_Z
     assert np.allclose(model[:, start_x:end_x, start_z:end_z],
                        vp_vs_rho_model_2d)
+
+
+###############################################
+#### ElasticIsotropic2D Born tests ###########
+###############################################
+@pytest.mark.gpu
+def test_init_linear(ricker_wavelet, fixed_rec_locations, src_locations,
+                     vp_vs_rho_model_2d):
+  # Arrange
+  elastic_2d = elastic_isotropic.ElasticIsotropic2D(
+      model=vp_vs_rho_model_2d,
+      model_sampling=(D_X, D_Z),
+      model_padding=(N_X_PAD, N_Z_PAD),
+      wavelet=ricker_wavelet,
+      d_t=D_T,
+      src_locations=src_locations,
+      rec_locations=fixed_rec_locations,
+      gpus=I_GPUS)
+
+  #assert
+  assert elastic_2d._jac_wave_op == None
+
+  # act
+  elastic_2d._setup_jac_wave_op(elastic_2d.data_sep, elastic_2d.model_sep,
+                                elastic_2d.sep_param, elastic_2d.src_devices,
+                                elastic_2d.rec_devices,
+                                elastic_2d.wavelet_lin_sep)
+
+  # assert
+  assert isinstance(elastic_2d._jac_wave_op, wave_equation._JacobianWaveCppOp)
+
+
+@pytest.mark.gpu
+def test_jacobian(ricker_wavelet, fixed_rec_locations, src_locations,
+                  vp_vs_rho_model_2d):
+  # Arrange
+  vp_vs_rho_model_2d_smooth = np.ones_like(vp_vs_rho_model_2d)
+  vp_vs_rho_model_2d_smooth[:] = vp_vs_rho_model_2d
+  vp_vs_rho_model_2d_smooth[0] = V_P1
+  elastic_2d = elastic_isotropic.ElasticIsotropic2D(
+      model=vp_vs_rho_model_2d_smooth,
+      model_sampling=(D_X, D_Z),
+      model_padding=(N_X_PAD, N_Z_PAD),
+      wavelet=ricker_wavelet,
+      d_t=D_T,
+      src_locations=src_locations,
+      rec_locations=fixed_rec_locations,
+      gpus=I_GPUS)
+  #reflectivity model
+  lin_model = np.gradient(vp_vs_rho_model_2d, axis=-1)
+  # act
+  lin_data = elastic_2d.jacobian(lin_model)
+  print('lin_data: ', np.amax(lin_data))
+  # Assert
+  assert lin_data.shape == (N_SRCS, N_WFLD_COMPONENTS, N_REC, N_T)
+  assert not np.all((lin_data == 0))
+  assert not np.any(np.isnan(lin_data))
+
+
+@pytest.mark.gpu
+def test_jacobian_adjoint(ricker_wavelet, fixed_rec_locations, src_locations,
+                          vp_vs_rho_model_2d):
+  # Arrange
+  vp_vs_rho_model_2d_smooth = np.ones_like(vp_vs_rho_model_2d)
+  vp_vs_rho_model_2d_smooth[:] = vp_vs_rho_model_2d
+  vp_vs_rho_model_2d_smooth[0] = V_P1
+  elastic_2d = elastic_isotropic.ElasticIsotropic2D(
+      model=vp_vs_rho_model_2d_smooth,
+      model_sampling=(D_X, D_Z),
+      model_padding=(N_X_PAD, N_Z_PAD),
+      wavelet=ricker_wavelet,
+      d_t=D_T,
+      src_locations=src_locations,
+      rec_locations=fixed_rec_locations,
+      gpus=I_GPUS)
+  #reflectivity model
+  lin_model = np.gradient(vp_vs_rho_model_2d, axis=-1)
+
+  # act
+  lin_data = elastic_2d.jacobian(lin_model)
+  lin_model = elastic_2d.jacobian_adjoint(lin_data)
+
+  # Assert
+  assert lin_model.shape == vp_vs_rho_model_2d.shape
+  assert not np.all((lin_model == 0))
+  assert not np.any(np.isnan(lin_model))

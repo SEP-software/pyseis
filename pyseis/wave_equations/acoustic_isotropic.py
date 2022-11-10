@@ -19,7 +19,7 @@ Current implementation parallelizes shots over gpus.
       src_locations_nd_array,
       rec_locations_nd_array,
       gpus=[0,1,2,3])
-    data = acoustic_2d.fwd(vp_model_half_space)
+    data = acoustic_2d.forward(vp_model_half_space)
 """
 import numpy as np
 from math import ceil
@@ -29,9 +29,11 @@ from pyseis.wave_equations import wave_equation
 # 2d pybind11 modules
 from pyAcoustic_iso_float_nl import deviceGpu as device_gpu_2d
 from pyAcoustic_iso_float_nl import nonlinearPropShotsGpu, ostream_redirect
+from pyAcoustic_iso_float_born import BornShotsGpu
 # 3d pybind11 modules
 from pyAcoustic_iso_float_nl_3D import deviceGpu_3D as device_gpu_3d
 from pyAcoustic_iso_float_nl_3D import nonlinearPropShotsGpu_3D
+from pyAcoustic_iso_float_Born_3D import BornShotsGpu_3D
 
 
 class AcousticIsotropic(wave_equation.WaveEquation):
@@ -86,9 +88,9 @@ class AcousticIsotropic(wave_equation.WaveEquation):
     self._setup_sep_par(self.fd_param)
 
     # make and set gpu operator
-    self._setup_nl_wave_prop(self.data_sep, self.model_sep, self.sep_param,
-                             self.src_devices, self.rec_devices,
-                             self.wavelet_nl_sep)
+    self._setup_nl_wave_op(self.data_sep, self.model_sep, self.sep_param,
+                           self.src_devices, self.rec_devices,
+                           self.wavelet_nl_sep)
 
   def _setup_subsampling(self, model, d_t, model_sampling):
     sub = self._calc_subsampling(model, d_t, model_sampling)
@@ -136,7 +138,8 @@ class AcousticIsotropic2D(AcousticIsotropic):
         'zPadPlus', 'dts', 'nts', 'fMax', 'sub', 'nShot', 'iGpu', 'blockSize',
         'fat', 'ginsu', 'freeSurface'
     ]
-    self.wave_prop_cpp_op_class = _Aco2dWavePropCppOp
+    self._nl_wave_pybind_class = nonlinearPropShotsGpu
+    self._jac_wave_pybind_class = BornShotsGpu
     self.ostream_redirect = ostream_redirect
 
     self.model_sampling = model_sampling
@@ -169,6 +172,27 @@ class AcousticIsotropic2D(AcousticIsotropic):
     self.fd_param['z_pad_plus'] = z_pad_plus
     self.fd_param['free_surface'] = int(self.free_surface)
 
+  def _setup_lin_model(self, lin_model):
+    lin_model, x_pad, x_pad_plus, new_o_x, z_pad, z_pad_plus, new_o_z = self._pad_model(
+        lin_model, self.model_sampling, self.model_padding, self.model_origins,
+        self.free_surface)
+    self.lin_model = lin_model
+    self.lin_model_sep = SepVector.getSepVector(
+        Hypercube.hypercube(axes=[
+            Hypercube.axis(
+                n=lin_model.shape[1], o=new_o_z, d=self.model_sampling[1]),
+            Hypercube.axis(
+                n=lin_model.shape[0], o=new_o_x, d=self.model_sampling[0])
+        ]))
+    self.lin_model_sep.getNdArray()[:] = self.lin_model
+
+  def _truncate_model(self, model):
+    x_pad = self.fd_param['x_pad_minus'] + self._FAT
+    x_pad_plus = self.fd_param['x_pad_plus'] + self._FAT
+    z_pad = self.fd_param['z_pad_minus'] + self._FAT
+    z_pad_plus = self.fd_param['z_pad_plus'] + self._FAT
+    return model[x_pad:-x_pad_plus:, z_pad:-z_pad_plus:]
+
   def _pad_model(self,
                  model,
                  model_sampling,
@@ -191,15 +215,27 @@ class AcousticIsotropic2D(AcousticIsotropic):
     Returns:
         2d np array: padded 2d model.
     """
+    x_pad, x_pad_plus, new_o_x, z_pad, z_pad_plus, new_o_z = self._get_pad_params(
+        model.shape, model_sampling, model_padding, model_origins, free_surface)
+
+    # pad
+    model = np.pad(np.pad(model, ((x_pad, x_pad_plus), (z_pad, z_pad_plus)),
+                          mode='edge'),
+                   ((self._FAT, self._FAT), (self._FAT, self._FAT)),
+                   mode='constant')
+
+    return model, x_pad, x_pad_plus, new_o_x, z_pad, z_pad_plus, new_o_z
+
+  def _get_pad_params(self, model_shape, model_sampling, model_padding,
+                      model_origins, free_surface):
     #get dimensions
-    n_x = model.shape[0]
+    n_x = model_shape[0]
     d_x = model_sampling[0]
     x_pad = model_padding[0]
-    n_z = model.shape[1]
+    n_z = model_shape[1]
     d_z = model_sampling[1]
     z_pad = model_padding[1]
-    if model_origins is None:
-      model_origins = (0.0, 0.0)
+    model_origins = model_origins or (0.0, 0.0)
 
     # Compute size of z_pad_plus
     if free_surface:
@@ -217,17 +253,11 @@ class AcousticIsotropic2D(AcousticIsotropic):
     nb_blockx = ceil(ratio_x)
     x_pad_plus = nb_blockx * self._BLOCK_SIZE - n_x - x_pad
 
-    # pad
-    model = np.pad(np.pad(model, ((x_pad, x_pad_plus), (z_pad, z_pad_plus)),
-                          mode='edge'),
-                   ((self._FAT, self._FAT), (self._FAT, self._FAT)),
-                   mode='constant')
-
     # Compute new origins
     new_o_x = model_origins[0] - (self._FAT + x_pad) * d_x
     new_o_z = model_origins[1] - (self._FAT + z_pad) * d_z
 
-    return model, x_pad, x_pad_plus, new_o_x, z_pad, z_pad_plus, new_o_z
+    return x_pad, x_pad_plus, new_o_x, z_pad, z_pad_plus, new_o_z
 
   def _setup_src_devices(self, src_locations, n_t):
     """
@@ -290,7 +320,7 @@ class AcousticIsotropic2D(AcousticIsotropic):
     self.fd_param['n_rec'] = n_rec
     self.rec_devices = rec_devices
 
-  def _setup_data(self, n_t, d_t):
+  def _setup_data(self, n_t, d_t, data=None):
     if 'n_src' not in self.fd_param:
       raise RuntimeError(
           'self.fd_param[\'n_src\'] must be set to set setup_data')
@@ -355,7 +385,8 @@ class AcousticIsotropic3D(AcousticIsotropic):
         'zPadMinus', 'zPadPlus', 'yPad', 'dts', 'nts', 'fMax', 'sub', 'nShot',
         'iGpu', 'blockSize', 'fat', 'ginsu', 'freeSurface'
     ]
-    self.wave_prop_cpp_op_class = _Aco3dWavePropCppOp
+    self._nl_wave_pybind_class = nonlinearPropShotsGpu_3D
+    self._jac_wave_pybind_class = BornShotsGpu_3D
     self.ostream_redirect = ostream_redirect
 
     self.model_sampling = model_sampling
@@ -394,6 +425,30 @@ class AcousticIsotropic3D(AcousticIsotropic):
     self.fd_param['z_pad_plus'] = z_pad_plus
     self.fd_param['free_surface'] = int(self.free_surface)
 
+  def _setup_lin_model(self, lin_model):
+    lin_model, y_pad, y_pad_plus, new_o_y, x_pad, x_pad_plus, new_o_x, z_pad, z_pad_plus, new_o_z = self._pad_model(
+        lin_model, self.model_sampling, self.model_padding, self.model_origins,
+        self.free_surface)
+    self.lin_model = lin_model
+    self.lin_model_sep = SepVector.getSepVector(
+        Hypercube.hypercube(axes=[
+            Hypercube.axis(
+                n=lin_model.shape[2], o=new_o_z, d=self.model_sampling[2]),
+            Hypercube.axis(
+                n=lin_model.shape[1], o=new_o_x, d=self.model_sampling[1]),
+            Hypercube.axis(
+                n=lin_model.shape[0], o=new_o_y, d=self.model_sampling[0])
+        ]))
+    self.lin_model_sep.getNdArray()[:] = self.lin_model
+
+  def _truncate_model(self, model):
+    y_pad = self.fd_param['y_pad'] + self._FAT
+    x_pad = self.fd_param['x_pad_minus'] + self._FAT
+    x_pad_plus = self.fd_param['x_pad_plus'] + self._FAT
+    z_pad = self.fd_param['z_pad_minus'] + self._FAT
+    z_pad_plus = self.fd_param['z_pad_plus'] + self._FAT
+    return model[y_pad:-y_pad:, x_pad:-x_pad_plus:, z_pad:-z_pad_plus:]
+
   def _pad_model(self,
                  model,
                  model_sampling,
@@ -422,8 +477,7 @@ class AcousticIsotropic3D(AcousticIsotropic):
     n_z = model.shape[2]
     d_z = model_sampling[2]
     z_pad = model_padding[2]
-    if model_origins is None:
-      model_origins = (0.0, 0.0, 0.0)
+    model_origins = model_origins or (0.0, 0.0, 0.0)
 
     # Compute size of z_pad_plus
     if free_surface:
@@ -544,7 +598,7 @@ class AcousticIsotropic3D(AcousticIsotropic):
     self.fd_param['n_rec'] = n_rec
     self.rec_devices = rec_devices
 
-  def _setup_data(self, n_t, d_t):
+  def _setup_data(self, n_t, d_t, data=None):
     if 'n_src' not in self.fd_param:
       raise RuntimeError(
           'self.fd_param[\'n_shots\'] must be set to set setup_data')
@@ -570,26 +624,7 @@ class AcousticIsotropic3D(AcousticIsotropic):
     wavelet_nl_sep.getNdArray()[:] = wavelet
 
     #the 3d acoustic code uses the same wavelet object for nonlinear and linear
-    wavelet_lin_sep = wavelet_nl_sep.getCpp()
+    wavelet_lin_sep = wavelet_nl_sep.clone()
+    wavelet_lin_sep = wavelet_lin_sep.getCpp()
 
     return wavelet_nl_sep, wavelet_lin_sep
-
-
-class _Aco2dWavePropCppOp(wave_equation._NonlinearWaveCppOp):
-  """Wrapper encapsulating PYBIND11 module for the wave propagator"""
-
-  wave_prop_module = nonlinearPropShotsGpu
-
-  def set_background(self, model_sep):
-    with ostream_redirect():
-      self.wave_prop_operator.setVel(model_sep.getCpp())
-
-
-class _Aco3dWavePropCppOp(wave_equation._NonlinearWaveCppOp):
-  """Wrapper encapsulating PYBIND11 module for the wave propagator"""
-
-  wave_prop_module = nonlinearPropShotsGpu_3D
-
-  def set_background(self, model_sep):
-    with ostream_redirect():
-      self.wave_prop_operator.setVel_3D(model_sep.getCpp())

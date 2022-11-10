@@ -1,8 +1,10 @@
 from mock import patch
 import pytest
 import numpy as np
-from pyseis.wave_equations import acoustic_isotropic
+from pyseis.wave_equations import acoustic_isotropic, wave_equation
 from pyseis.wavelets.acoustic import Acoustic2D
+import SepVector
+import pySepVector
 
 N_X = 100
 D_X = 10.0
@@ -104,8 +106,8 @@ def test_fwd_diff_models_makes_diff_data(ricker_wavelet, fixed_rec_locations,
       gpus=I_GPUS)
 
   # Act
-  data1 = acoustic_2d.fwd(vp_model_half_space)
-  data2 = acoustic_2d.fwd(vp_model_shallow_half_space)
+  data1 = acoustic_2d.forward(vp_model_half_space)
+  data2 = acoustic_2d.forward(vp_model_shallow_half_space)
 
   # Assert
   assert not np.allclose(data1, data2)
@@ -126,7 +128,7 @@ def test_fwd(ricker_wavelet, fixed_rec_locations, src_locations,
       gpus=I_GPUS)
 
   # Act
-  data = acoustic_2d.fwd(vp_model_half_space)
+  data = acoustic_2d.forward(vp_model_half_space)
 
   # Assert
   assert data.shape == (N_SRCS, N_REC, N_T)
@@ -173,6 +175,11 @@ def test_setup_wavelet(ricker_wavelet):
 
     # Act
     acoustic_2d._setup_wavelet(ricker_wavelet, D_T)
+
+    # assert
+    assert isinstance(acoustic_2d.wavelet_nl_sep, SepVector.floatVector)
+    assert isinstance(acoustic_2d.wavelet_lin_sep, list)
+    assert isinstance(acoustic_2d.wavelet_lin_sep[0], pySepVector.float2DReg)
 
 
 def test_setup_data(variable_rec_locations, src_locations, vp_model_half_space):
@@ -426,3 +433,100 @@ def test_pad_model(vp_model_half_space):
     start_z = acoustic_2d._FAT + N_Z_PAD
     end_z = start_z + N_Z
     assert np.allclose(model[start_x:end_x, start_z:end_z], vp_model_half_space)
+
+
+###############################################
+#### AcousticIsotropic2D Born tests ###########
+###############################################
+@pytest.mark.gpu
+def test_init_linear(ricker_wavelet, fixed_rec_locations, src_locations,
+                     vp_model_half_space):
+  # setup
+  acoustic_2d = acoustic_isotropic.AcousticIsotropic2D(
+      model=vp_model_half_space,
+      model_sampling=(D_X, D_Z),
+      model_padding=(N_X_PAD, N_Z_PAD),
+      wavelet=ricker_wavelet,
+      d_t=D_T,
+      src_locations=src_locations,
+      rec_locations=fixed_rec_locations,
+      gpus=I_GPUS)
+
+  #assert
+  assert acoustic_2d._jac_wave_op == None
+
+  # act
+  acoustic_2d._setup_jac_wave_op(acoustic_2d.data_sep, acoustic_2d.model_sep,
+                                 acoustic_2d.sep_param, acoustic_2d.src_devices,
+                                 acoustic_2d.rec_devices,
+                                 acoustic_2d.wavelet_lin_sep)
+
+  # assert
+  assert isinstance(acoustic_2d._jac_wave_op, wave_equation._JacobianWaveCppOp)
+
+
+@pytest.mark.gpu
+def test_jacobian(ricker_wavelet, fixed_rec_locations, src_locations,
+                  vp_model_half_space):
+  # setup
+  acoustic_2d = acoustic_isotropic.AcousticIsotropic2D(
+      model=vp_model_half_space,
+      model_sampling=(D_X, D_Z),
+      model_padding=(N_X_PAD, N_Z_PAD),
+      wavelet=ricker_wavelet,
+      d_t=D_T,
+      src_locations=src_locations,
+      rec_locations=fixed_rec_locations,
+      gpus=I_GPUS)
+  #reflectivity model
+  lin_model = np.gradient(vp_model_half_space, axis=-1)
+
+  # act
+  lin_data = acoustic_2d.jacobian(lin_model)
+
+  # Assert
+  assert lin_data.shape == (N_SRCS, N_REC, N_T)
+  assert not np.all((lin_data == 0))
+
+
+@pytest.mark.gpu
+def test_jacobian_adjoint(ricker_wavelet, fixed_rec_locations, src_locations,
+                          vp_model_half_space):
+  # setup
+  acoustic_2d = acoustic_isotropic.AcousticIsotropic2D(
+      model=vp_model_half_space,
+      model_sampling=(D_X, D_Z),
+      model_padding=(N_X_PAD, N_Z_PAD),
+      wavelet=ricker_wavelet,
+      d_t=D_T,
+      src_locations=src_locations,
+      rec_locations=fixed_rec_locations,
+      gpus=I_GPUS)
+  #reflectivity model
+  lin_model = np.gradient(vp_model_half_space, axis=-1)
+
+  # act
+  lin_data = acoustic_2d.jacobian(lin_model)
+  lin_model = acoustic_2d.jacobian_adjoint(lin_data)
+
+  # Assert
+  assert lin_model.shape == vp_model_half_space.shape
+  assert not np.all((lin_model == 0))
+
+
+@pytest.mark.gpu
+def test_dot_product(ricker_wavelet, fixed_rec_locations, src_locations,
+                     vp_model_half_space):
+  # setup
+  acoustic_2d = acoustic_isotropic.AcousticIsotropic2D(
+      model=vp_model_half_space,
+      model_sampling=(D_X, D_Z),
+      model_padding=(N_X_PAD, N_Z_PAD),
+      wavelet=ricker_wavelet,
+      d_t=D_T,
+      src_locations=src_locations,
+      rec_locations=fixed_rec_locations,
+      gpus=I_GPUS)
+
+  #assert
+  acoustic_2d.dot_product_test(True)

@@ -1,8 +1,10 @@
 from mock import patch
 import pytest
 import numpy as np
-from pyseis.wave_equations import acoustic_isotropic
+from pyseis.wave_equations import acoustic_isotropic, wave_equation
 from pyseis.wavelets.acoustic import Acoustic3D
+import SepVector
+import pySepVector
 
 N_Y = 51
 D_Y = 10.0
@@ -17,15 +19,15 @@ V_P = 2500
 VP_1 = 1500
 VP_2 = 2500
 
-N_T = 251
-D_T = 0.004
+N_T = 500
+D_T = 0.01
 
-DELAY = 2.0
+DELAY = 1.0
 DOM_FREQ = 5.0
 F1 = 0.0
-F2 = 15
-F3 = 15
-F4 = 30
+F2 = 7
+F3 = 7
+F4 = 15
 
 N_SRCS = 4
 Z_SHOT = 10.0
@@ -39,6 +41,7 @@ I_GPUS = [0, 1, 2, 3]
 
 @pytest.fixture
 def ricker_wavelet():
+  print(N_T, D_T, DOM_FREQ, DELAY)
   ricker = Acoustic3D.AcousticIsotropicRicker3D(N_T, D_T, DOM_FREQ, DELAY)
   return ricker.get_arr()
 
@@ -90,9 +93,9 @@ def variable_rec_locations(src_locations):
 
 @pytest.fixture
 def vp_model_half_space():
-  vp_model = np.ones((N_Y, N_X, N_Z)) * V_P
-  # vp_model[..., :(N_Z // 2] = VP_1
-  # vp_model[..., N_Z // 2:] = VP_2
+  vp_model = np.zeros((N_Y, N_X, N_Z))
+  vp_model[..., :(N_Z // 2)] = VP_1
+  vp_model[..., (N_Z // 2):] = VP_2
   return vp_model
 
 
@@ -126,11 +129,12 @@ def test_fwd(trapezoid_wavelet, fixed_rec_locations, src_locations,
       gpus=I_GPUS)
 
   # Act
-  data = acoustic_3d.fwd(vp_model_half_space)
+  data = acoustic_3d.forward(vp_model_half_space)
 
   # Assert
   assert data.shape == (N_SRCS, N_REC * N_REC, N_T)
   assert not np.all((data == 0))
+  assert not np.any(np.isnan(data))
 
 
 @pytest.mark.gpu
@@ -173,6 +177,10 @@ def test_setup_wavelet(trapezoid_wavelet):
 
     # Act
     acoustic_3d._setup_wavelet(trapezoid_wavelet, D_T)
+
+    # assert
+    assert isinstance(acoustic_3d.wavelet_nl_sep, SepVector.floatVector)
+    assert isinstance(acoustic_3d.wavelet_lin_sep, pySepVector.float2DReg)
 
 
 def test_setup_data(variable_rec_locations, src_locations, vp_model_half_space):
@@ -440,3 +448,106 @@ def test_pad_model(vp_model_half_space):
     end_z = start_z + N_Z
     assert np.allclose(model[start_y:end_y, start_x:end_x, start_z:end_z],
                        vp_model_half_space)
+
+
+###############################################
+#### AcousticIsotropic3D Born tests ###########
+###############################################
+@pytest.mark.gpu
+def test_init_linear(ricker_wavelet, fixed_rec_locations, src_locations,
+                     vp_model_half_space):
+  # setup
+  acoustic_3d = acoustic_isotropic.AcousticIsotropic3D(
+      model=vp_model_half_space,
+      model_sampling=(D_Y, D_X, D_Z),
+      model_padding=(N_Y_PAD, N_X_PAD, N_Z_PAD),
+      wavelet=ricker_wavelet,
+      d_t=D_T,
+      src_locations=src_locations,
+      rec_locations=fixed_rec_locations,
+      gpus=I_GPUS)
+
+  #assert
+  assert acoustic_3d._jac_wave_op == None
+
+  # act
+  acoustic_3d._setup_jac_wave_op(acoustic_3d.data_sep, acoustic_3d.model_sep,
+                                 acoustic_3d.sep_param, acoustic_3d.src_devices,
+                                 acoustic_3d.rec_devices,
+                                 acoustic_3d.wavelet_lin_sep)
+
+  # assert
+  assert isinstance(acoustic_3d._jac_wave_op, wave_equation._JacobianWaveCppOp)
+
+
+@pytest.mark.gpu
+def test_jacobian(ricker_wavelet, fixed_rec_locations, src_locations,
+                  vp_model_half_space):
+  # setup
+  vp_model_half_space_smooth = VP_1 * np.ones_like(vp_model_half_space)
+  acoustic_3d = acoustic_isotropic.AcousticIsotropic3D(
+      model=vp_model_half_space_smooth,
+      model_sampling=(D_Y, D_X, D_Z),
+      model_padding=(N_Y_PAD, N_X_PAD, N_Z_PAD),
+      wavelet=ricker_wavelet,
+      d_t=D_T,
+      src_locations=src_locations,
+      rec_locations=fixed_rec_locations,
+      gpus=I_GPUS)
+  #reflectivity model
+  lin_model = np.gradient(vp_model_half_space, axis=-1)
+
+  # act
+  lin_data = acoustic_3d.jacobian(lin_model,
+                                  background_model=vp_model_half_space_smooth)
+  print('lin_data: ', np.amax(lin_data))
+  print(lin_data[0, 0, :])
+  # Assert
+  assert lin_data.shape == (N_SRCS, N_REC * N_REC, N_T)
+  assert not np.all((lin_data == 0))
+  assert not np.any(np.isnan(lin_data))
+
+
+@pytest.mark.gpu
+def test_jacobian_adjoint(ricker_wavelet, fixed_rec_locations, src_locations,
+                          vp_model_half_space):
+  # setup
+  acoustic_3d = acoustic_isotropic.AcousticIsotropic3D(
+      model=vp_model_half_space,
+      model_sampling=(D_Y, D_X, D_Z),
+      model_padding=(N_Y_PAD, N_X_PAD, N_Z_PAD),
+      wavelet=ricker_wavelet,
+      d_t=D_T,
+      src_locations=src_locations,
+      rec_locations=fixed_rec_locations,
+      gpus=I_GPUS)
+  #reflectivity model
+  lin_model = np.gradient(vp_model_half_space, axis=-1)
+
+  # act
+  lin_data = acoustic_3d.jacobian(lin_model)
+  lin_model = acoustic_3d.jacobian_adjoint(lin_data)
+  print('lin_data: ', np.amax(lin_model))
+
+  # Assert
+  assert lin_model.shape == vp_model_half_space.shape
+  assert not np.all((lin_model == 0))
+  assert not np.any(np.isnan(lin_model))
+
+
+@pytest.mark.gpu
+def test_dot_product(ricker_wavelet, fixed_rec_locations, src_locations,
+                     vp_model_half_space):
+  # setup
+  acoustic_3d = acoustic_isotropic.AcousticIsotropic3D(
+      model=vp_model_half_space,
+      model_sampling=(D_Y, D_X, D_Z),
+      model_padding=(N_Y_PAD, N_X_PAD, N_Z_PAD),
+      wavelet=ricker_wavelet,
+      d_t=D_T,
+      src_locations=src_locations,
+      rec_locations=fixed_rec_locations,
+      gpus=I_GPUS)
+
+  #assert
+  acoustic_3d.dot_product_test(True)
