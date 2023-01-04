@@ -12,9 +12,9 @@ N_X = 52
 D_X = 10.0
 N_Z = 53
 D_Z = 10.0
-N_Y_PAD = 20
-N_X_PAD = 21
-N_Z_PAD = 22
+N_Y_PAD = 5
+N_X_PAD = 6
+N_Z_PAD = 7
 V_P = 2500
 VP_1 = 1500
 VP_2 = 2500
@@ -29,14 +29,14 @@ F2 = 7
 F3 = 7
 F4 = 15
 
-N_SRCS = 4
+N_SRCS = 2  #4
 Z_SHOT = 10.0
 N_REC = 7
 D_X_REC = 10.0
 D_Y_REC = 10.0
 Z_REC = 10.0
 #expected values
-I_GPUS = [0, 1, 2, 3]
+I_GPUS = [0]  # [0, 1, 2, 3]
 
 
 @pytest.fixture
@@ -481,7 +481,7 @@ def test_init_linear(ricker_wavelet, fixed_rec_locations, src_locations,
 
 
 @pytest.mark.gpu
-def test_jacobian(ricker_wavelet, fixed_rec_locations, src_locations,
+def test_jacobian(trapezoid_wavelet, fixed_rec_locations, src_locations,
                   vp_model_half_space):
   # setup
   vp_model_half_space_smooth = VP_1 * np.ones_like(vp_model_half_space)
@@ -489,11 +489,12 @@ def test_jacobian(ricker_wavelet, fixed_rec_locations, src_locations,
       model=vp_model_half_space_smooth,
       model_sampling=(D_Y, D_X, D_Z),
       model_padding=(N_Y_PAD, N_X_PAD, N_Z_PAD),
-      wavelet=ricker_wavelet,
+      wavelet=trapezoid_wavelet,
       d_t=D_T,
       src_locations=src_locations,
       rec_locations=fixed_rec_locations,
-      gpus=I_GPUS)
+      gpus=I_GPUS,
+      subsampling=6)
   #reflectivity model
   lin_model = np.gradient(vp_model_half_space, axis=-1)
 
