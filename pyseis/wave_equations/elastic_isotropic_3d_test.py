@@ -509,3 +509,77 @@ def test_init_linear(trapezoid_wavelet, fixed_rec_locations, src_locations,
 
   # assert
   assert isinstance(elastic_3d._jac_wave_op, wave_equation._JacobianWaveCppOp)
+
+
+@pytest.mark.gpu
+def test_jacobian(trapezoid_wavelet, fixed_rec_locations, src_locations,
+                  vp_vs_rho_model_3d):
+  # Arrange
+  vp_vs_rho_model_3d[..., N_Z // 2:] *= 1.5
+  elastic_3d = elastic_isotropic.ElasticIsotropic3D(
+      model=vp_vs_rho_model_3d,
+      model_sampling=(D_Y, D_X, D_Z),
+      model_padding=(N_Y_PAD, N_X_PAD, N_Z_PAD),
+      wavelet=trapezoid_wavelet,
+      d_t=D_T,
+      src_locations=src_locations,
+      rec_locations=fixed_rec_locations,
+      gpus=I_GPUS)
+
+  #reflectivity model
+  lin_model = np.gradient(vp_vs_rho_model_3d, axis=-1)
+
+  # act
+  lin_data = elastic_3d.jacobian(lin_model)
+
+  # Assert
+  assert lin_data.shape == (N_SRCS, N_WFLD_COMPONENTS, N_REC * N_REC, N_T)
+  assert not np.all((lin_data == 0))
+  assert not np.any(np.isnan(lin_data))
+
+
+@pytest.mark.gpu
+def test_jacobian_adjoint(trapezoid_wavelet, fixed_rec_locations, src_locations,
+                          vp_vs_rho_model_3d):
+  # Arrange
+  vp_vs_rho_model_3d[..., N_Z // 2:] *= 1.5
+  elastic_3d = elastic_isotropic.ElasticIsotropic3D(
+      model=vp_vs_rho_model_3d,
+      model_sampling=(D_Y, D_X, D_Z),
+      model_padding=(N_Y_PAD, N_X_PAD, N_Z_PAD),
+      wavelet=trapezoid_wavelet,
+      d_t=D_T,
+      src_locations=src_locations,
+      rec_locations=fixed_rec_locations,
+      gpus=I_GPUS)
+
+  #reflectivity model
+  lin_model = np.gradient(vp_vs_rho_model_3d, axis=-1)
+
+  # act
+  lin_data = elastic_3d.jacobian(lin_model)
+  lin_model = elastic_3d.jacobian_adjoint(lin_data)
+
+  # Assert
+  assert lin_model.shape == vp_vs_rho_model_3d.shape
+  assert not np.all((lin_model == 0))
+  assert not np.any(np.isnan(lin_model))
+
+
+@pytest.mark.gpu
+def test_jacobian_dot_product(trapezoid_wavelet, fixed_rec_locations,
+                              src_locations, vp_vs_rho_model_3d):
+  # Arrange
+  vp_vs_rho_model_3d[..., N_Z // 2:] *= 1.5
+  elastic_3d = elastic_isotropic.ElasticIsotropic3D(
+      model=vp_vs_rho_model_3d,
+      model_sampling=(D_Y, D_X, D_Z),
+      model_padding=(N_Y_PAD, N_X_PAD, N_Z_PAD),
+      wavelet=trapezoid_wavelet,
+      d_t=D_T,
+      src_locations=src_locations,
+      rec_locations=fixed_rec_locations,
+      gpus=I_GPUS)
+
+  #assert
+  elastic_3d.dot_product_test(True)

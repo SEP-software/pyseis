@@ -29,19 +29,18 @@ F2 = 7
 F3 = 7
 F4 = 15
 
-N_SRCS = 2  #4
+N_SRCS = 4
 Z_SHOT = 10.0
 N_REC = 7
 D_X_REC = 10.0
 D_Y_REC = 10.0
 Z_REC = 10.0
 #expected values
-I_GPUS = [0]  # [0, 1, 2, 3]
+I_GPUS = [0, 1, 2, 3]
 
 
 @pytest.fixture
 def ricker_wavelet():
-  print(N_T, D_T, DOM_FREQ, DELAY)
   ricker = Acoustic3D.AcousticIsotropicRicker3D(N_T, D_T, DOM_FREQ, DELAY)
   return ricker.get_arr()
 
@@ -501,8 +500,7 @@ def test_jacobian(trapezoid_wavelet, fixed_rec_locations, src_locations,
   # act
   lin_data = acoustic_3d.jacobian(lin_model,
                                   background_model=vp_model_half_space_smooth)
-  print('lin_data: ', np.amax(lin_data))
-  print(lin_data[0, 0, :])
+
   # Assert
   assert lin_data.shape == (N_SRCS, N_REC * N_REC, N_T)
   assert not np.all((lin_data == 0))
@@ -528,7 +526,6 @@ def test_jacobian_adjoint(ricker_wavelet, fixed_rec_locations, src_locations,
   # act
   lin_data = acoustic_3d.jacobian(lin_model)
   lin_model = acoustic_3d.jacobian_adjoint(lin_data)
-  print('lin_data: ', np.amax(lin_model))
 
   # Assert
   assert lin_model.shape == vp_model_half_space.shape
@@ -537,8 +534,8 @@ def test_jacobian_adjoint(ricker_wavelet, fixed_rec_locations, src_locations,
 
 
 @pytest.mark.gpu
-def test_dot_product(ricker_wavelet, fixed_rec_locations, src_locations,
-                     vp_model_half_space):
+def test_jacobian_dot_product(ricker_wavelet, fixed_rec_locations,
+                              src_locations, vp_model_half_space):
   # setup
   acoustic_3d = acoustic_isotropic.AcousticIsotropic3D(
       model=vp_model_half_space,

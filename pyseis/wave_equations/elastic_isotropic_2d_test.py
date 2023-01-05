@@ -24,7 +24,7 @@ DELAY = 2.0
 DOM_FREQ = 5.0
 # CONFIG_RICKER = {'delay': DELAY, 'dom_freq': DOM_FREQ}
 
-N_SRCS = 8
+N_SRCS = 4
 Z_SHOT = 10.0
 N_REC = 10
 D_X_REC = 11.0
@@ -41,6 +41,13 @@ def ricker_wavelet():
   ricker = Elastic2D.ElasticIsotropicRicker2D(N_T, D_T, DOM_FREQ, DELAY)
   # ricker.make(CONFIG_RICKER)
   return ricker.get_arr()
+
+
+@pytest.fixture
+def trapezoid_wavelet():
+  trapezoid = Elastic2D.ElasticIsotropicTrapezoid2D(N_T, D_T, F1, F2, F3, F4,
+                                                    DELAY)
+  return trapezoid.get_arr()
 
 
 @pytest.fixture
@@ -438,11 +445,11 @@ def test_init_linear(ricker_wavelet, fixed_rec_locations, src_locations,
 def test_jacobian(ricker_wavelet, fixed_rec_locations, src_locations,
                   vp_vs_rho_model_2d):
   # Arrange
-  vp_vs_rho_model_2d_smooth = np.ones_like(vp_vs_rho_model_2d)
-  vp_vs_rho_model_2d_smooth[:] = vp_vs_rho_model_2d
-  vp_vs_rho_model_2d_smooth[0] = V_P1
+  # vp_vs_rho_model_2d_smooth = np.ones_like(vp_vs_rho_model_2d)
+  # vp_vs_rho_model_2d_smooth[:] = vp_vs_rho_model_2d
+  # vp_vs_rho_model_2d_smooth[0] = V_P1
   elastic_2d = elastic_isotropic.ElasticIsotropic2D(
-      model=vp_vs_rho_model_2d_smooth,
+      model=vp_vs_rho_model_2d,
       model_sampling=(D_X, D_Z),
       model_padding=(N_X_PAD, N_Z_PAD),
       wavelet=ricker_wavelet,
@@ -452,9 +459,10 @@ def test_jacobian(ricker_wavelet, fixed_rec_locations, src_locations,
       gpus=I_GPUS)
   #reflectivity model
   lin_model = np.gradient(vp_vs_rho_model_2d, axis=-1)
+
   # act
   lin_data = elastic_2d.jacobian(lin_model)
-  print('lin_data: ', np.amax(lin_data))
+
   # Assert
   assert lin_data.shape == (N_SRCS, N_WFLD_COMPONENTS, N_REC, N_T)
   assert not np.all((lin_data == 0))
@@ -465,11 +473,8 @@ def test_jacobian(ricker_wavelet, fixed_rec_locations, src_locations,
 def test_jacobian_adjoint(ricker_wavelet, fixed_rec_locations, src_locations,
                           vp_vs_rho_model_2d):
   # Arrange
-  vp_vs_rho_model_2d_smooth = np.ones_like(vp_vs_rho_model_2d)
-  vp_vs_rho_model_2d_smooth[:] = vp_vs_rho_model_2d
-  vp_vs_rho_model_2d_smooth[0] = V_P1
   elastic_2d = elastic_isotropic.ElasticIsotropic2D(
-      model=vp_vs_rho_model_2d_smooth,
+      model=vp_vs_rho_model_2d,
       model_sampling=(D_X, D_Z),
       model_padding=(N_X_PAD, N_Z_PAD),
       wavelet=ricker_wavelet,
@@ -488,3 +493,24 @@ def test_jacobian_adjoint(ricker_wavelet, fixed_rec_locations, src_locations,
   assert lin_model.shape == vp_vs_rho_model_2d.shape
   assert not np.all((lin_model == 0))
   assert not np.any(np.isnan(lin_model))
+
+
+@pytest.mark.gpu
+def test_jacobian_dot_product(ricker_wavelet, fixed_rec_locations,
+                              src_locations, vp_vs_rho_model_2d):
+  # Arrange
+  vp_vs_rho_model_2d_smooth = np.ones_like(vp_vs_rho_model_2d)
+  vp_vs_rho_model_2d_smooth[:] = vp_vs_rho_model_2d
+  vp_vs_rho_model_2d_smooth[0] = V_P1
+  elastic_2d = elastic_isotropic.ElasticIsotropic2D(
+      model=vp_vs_rho_model_2d_smooth,
+      model_sampling=(D_X, D_Z),
+      model_padding=(N_X_PAD, N_Z_PAD),
+      wavelet=ricker_wavelet,
+      d_t=D_T,
+      src_locations=src_locations,
+      rec_locations=fixed_rec_locations,
+      gpus=I_GPUS)
+
+  #assert
+  elastic_2d.dot_product_test(True)

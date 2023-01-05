@@ -43,7 +43,6 @@ from dataCompModule_3D import ElasticDatComp_3D as _ElasticDatComp_3D
 
 class ElasticIsotropic(wave_equation.WaveEquation):
   _BLOCK_SIZE = 16
-  _FAT = 4
   _N_MODEL_PARAMETERS = 3
 
   def __init__(self):
@@ -182,6 +181,7 @@ class ElasticIsotropic(wave_equation.WaveEquation):
 
 class ElasticIsotropic2D(ElasticIsotropic):
   _N_WFLD_COMPONENTS = 5
+  _FAT = 4
 
   def __init__(self,
                model,
@@ -357,7 +357,7 @@ class ElasticIsotropic2D(ElasticIsotropic):
                           ((0, 0), (x_pad, x_pad_plus), (z_pad, z_pad_plus)),
                           mode='edge'),
                    ((0, 0), (self._FAT, self._FAT), (self._FAT, self._FAT)),
-                   mode='constant')
+                   mode='edge')
 
     # Compute new origins
     new_o_x = model_origins[0] - (self._FAT + x_pad) * d_x
@@ -520,6 +520,7 @@ class ElasticIsotropic2D(ElasticIsotropic):
 
 class ElasticIsotropic3D(ElasticIsotropic):
   _N_WFLD_COMPONENTS = 9
+  _FAT = 4
 
   def __init__(self,
                model,
@@ -630,6 +631,31 @@ class ElasticIsotropic3D(ElasticIsotropic):
     self.fd_param['z_pad_plus'] = z_pad_plus
     self.fd_param['free_surface'] = int(self.free_surface)
 
+  def _setup_lin_model(self, lin_model):
+    lin_model, y_pad, y_pad_plus, new_o_y, x_pad, x_pad_plus, new_o_x, z_pad, z_pad_plus, new_o_z = self._pad_model(
+        lin_model, self.model_sampling, self.model_padding, self.model_origins,
+        self.free_surface)
+    self.lin_model = lin_model
+    self.lin_model_sep = SepVector.getSepVector(
+        Hypercube.hypercube(axes=[
+            Hypercube.axis(
+                n=lin_model.shape[3], o=new_o_z, d=self.model_sampling[2]),
+            Hypercube.axis(
+                n=lin_model.shape[2], o=new_o_x, d=self.model_sampling[1]),
+            Hypercube.axis(
+                n=lin_model.shape[1], o=new_o_y, d=self.model_sampling[0]),
+            Hypercube.axis(n=lin_model.shape[0], o=0.0, d=1.0)
+        ]))
+    self.lin_model_sep.getNdArray()[:] = self.lin_model
+
+  def _truncate_model(self, model):
+    y_pad = self.fd_param['y_pad'] + self._FAT
+    x_pad = self.fd_param['x_pad_minus'] + self._FAT
+    x_pad_plus = self.fd_param['x_pad_plus'] + self._FAT
+    z_pad = self.fd_param['z_pad_minus'] + self._FAT
+    z_pad_plus = self.fd_param['z_pad_plus'] + self._FAT
+    return model[:, y_pad:-y_pad:, x_pad:-x_pad_plus:, z_pad:-z_pad_plus:]
+
   def _pad_model(self,
                  model,
                  model_sampling,
@@ -689,7 +715,7 @@ class ElasticIsotropic3D(ElasticIsotropic):
                           mode='edge'),
                    ((0, 0), (self._FAT, self._FAT), (self._FAT, self._FAT),
                     (self._FAT, self._FAT)),
-                   mode='constant')
+                   mode='edge')
 
     # Compute new origins
     new_o_y = model_origins[0] - (self._FAT + y_pad) * d_y
@@ -884,41 +910,6 @@ class ElasticIsotropic3D(ElasticIsotropic):
 
     self._nl_wave_op = Operator.ChainOperator(self._nl_wave_op,
                                               wavefield_sampling_operator)
-
-
-# class _Ela2dNonlinearWaveCppOp(wave_equation._NonlinearWaveCppOp):
-#   """Wrapper encapsulating PYBIND11 module for the wave propagator"""
-
-#   wave_prop_module = nonlinearPropElasticShotsGpu
-
-#   def set_background(self, model_sep):
-#     with ostream_redirect():
-#       self.wave_prop_operator.setBackground(model_sep.getCpp())
-
-# class _Ela3dNonlinearWaveCppOp(wave_equation._NonlinearWaveCppOp):
-#   """Wrapper encapsulating PYBIND11 module for the wave propagator"""
-
-#   wave_prop_module = nonlinearPropElasticShotsGpu_3D
-
-#   def set_background(self, model_sep):
-#     with ostream_redirect():
-#       self.wave_prop_operator.setBackground(model_sep.getCpp())
-
-# class _Ela2dJacobianWaveCppOp(wave_equation._JacobianWaveCppOp):
-
-#   wave_prop_module = BornElasticShotsGpu
-
-#   def set_background(self, model_sep):
-#     with ostream_redirect():
-#       self.wave_prop_operator.setBackground(model_sep.getCpp())
-
-# class _Ela3dJacobianWaveCppOp(wave_equation._JacobianWaveCppOp):
-
-#   wave_prop_module = BornElasticShotsGpu_3D
-
-#   def set_background(self, model_sep):
-#     with ostream_redirect():
-#       self.wave_prop_operator.setBackground(model_sep.getCpp())
 
 
 def convert_to_lame(model):

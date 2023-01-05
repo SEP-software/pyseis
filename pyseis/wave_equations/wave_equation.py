@@ -68,7 +68,6 @@ class WaveEquation(abc.ABC):
                               self.wavelet_lin_sep, lin_model)
     # self._jac_wave_op.set_background(self.model_sep)
     self._jac_wave_op.forward(0, self.lin_model_sep, self.data_sep)
-    print('jacobian data_sep max', np.amax(self.data_sep.getNdArray()))
     return np.copy(self.data_sep.getNdArray())
 
   def jacobian_adjoint(self, lin_data, background_model=None):
@@ -122,6 +121,7 @@ class WaveEquation(abc.ABC):
         key: str(value)[1:-1] if isinstance(value, list) else str(value)
         for key, value in dict.items()
     }
+    kwargs_str['info'] = '1'
 
     return genericIO.io(params=kwargs_str)
 
@@ -224,11 +224,13 @@ class _JacobianWaveCppOp(abc.ABC, Operator.Operator):
   def __init__(self, lin_model_sep, data_sep, velocity_sep, sep_par,
                src_devices, rec_devices, wavelet_lin_sep,
                _jac_wave_pybind_class):
+
     self.setDomainRange(lin_model_sep, data_sep)
     if not isinstance(src_devices[0], list):
       src_devices = [src_devices]
     if not isinstance(rec_devices[0], list):
       rec_devices = [rec_devices]
+
     self.wave_prop_operator = _jac_wave_pybind_class(velocity_sep.getCpp(),
                                                      sep_par.param,
                                                      *src_devices,
@@ -236,26 +238,14 @@ class _JacobianWaveCppOp(abc.ABC, Operator.Operator):
                                                      *rec_devices)
 
   def forward(self, add, model_sep, data_sep):
-    print('linear fwd model_sep max bef: ', np.amax(model_sep.getNdArray()))
-    print('linear fwd data_sep max bef: ', np.amax(data_sep.getNdArray()))
-
     with ostream_redirect():
       self.wave_prop_operator.forward(add, model_sep.getCpp(),
                                       data_sep.getCpp())
 
-    print('linear fwd model_sep max after: ', np.amax(model_sep.getNdArray()))
-    print('linear fwd data_sep max after: ', np.amax(data_sep.getNdArray()))
-
   def adjoint(self, add, model_sep, data_sep):
-    print('linear adj model_sep max bef: ', np.amax(model_sep.getNdArray()))
-    print('linear adj data_sep max bef: ', np.amax(data_sep.getNdArray()))
-
     with ostream_redirect():
       self.wave_prop_operator.adjoint(add, model_sep.getCpp(),
                                       data_sep.getCpp())
-      # model_sep.zero()
-    print('linear adj model_sep max after: ', np.amax(model_sep.getNdArray()))
-    print('linear adj data_sep max after: ', np.amax(data_sep.getNdArray()))
 
   def set_background(self, model_sep):
     with ostream_redirect():

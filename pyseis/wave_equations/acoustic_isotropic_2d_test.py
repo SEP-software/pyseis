@@ -30,7 +30,7 @@ D_X_REC = 11.0
 Z_REC = 5.0
 #expected values
 SUB = 3
-I_GPUS = [0, 1, 2, 3]
+I_GPUS = [6, 7]
 
 
 @pytest.fixture
@@ -487,6 +487,7 @@ def test_jacobian(ricker_wavelet, fixed_rec_locations, src_locations,
   # Assert
   assert lin_data.shape == (N_SRCS, N_REC, N_T)
   assert not np.all((lin_data == 0))
+  assert not np.any(np.isnan(lin_data))
 
 
 @pytest.mark.gpu
@@ -512,11 +513,12 @@ def test_jacobian_adjoint(ricker_wavelet, fixed_rec_locations, src_locations,
   # Assert
   assert lin_model.shape == vp_model_half_space.shape
   assert not np.all((lin_model == 0))
+  assert not np.any(np.isnan(lin_model))
 
 
 @pytest.mark.gpu
-def test_dot_product(ricker_wavelet, fixed_rec_locations, src_locations,
-                     vp_model_half_space):
+def test_jacobian_dot_product(ricker_wavelet, fixed_rec_locations,
+                              src_locations, vp_model_half_space):
   # setup
   acoustic_2d = acoustic_isotropic.AcousticIsotropic2D(
       model=vp_model_half_space,

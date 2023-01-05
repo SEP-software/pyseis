@@ -75,7 +75,7 @@ class AcousticIsotropic(wave_equation.WaveEquation):
             f"User specified subsampling={subsampling} that will does not satisfy Courant condition. subsampling must be >={self.fd_param['sub']}"
         )
       self.fd_param['sub'] = subsampling
-    print("subsampling", self.fd_param['sub'])
+
     # set gpus list
     self.fd_param['gpus'] = str(gpus)[1:-1]
 
@@ -426,12 +426,6 @@ class AcousticIsotropic3D(AcousticIsotropic):
     self.fd_param['z_pad_minus'] = z_pad
     self.fd_param['z_pad_plus'] = z_pad_plus
     self.fd_param['free_surface'] = int(self.free_surface)
-
-    print("self.fd_param['y_pad']:", self.fd_param['y_pad'])
-    print("self.fd_param['x_pad_minus']:", self.fd_param['x_pad_minus'])
-    print("self.fd_param['x_pad_plus']:", self.fd_param['x_pad_plus'])
-    print("self.fd_param['z_pad_minus']:", self.fd_param['z_pad_minus'])
-    print("self.fd_param['z_pad_plus']:", self.fd_param['z_pad_plus'])
 
   def _setup_lin_model(self, lin_model):
     lin_model, y_pad, y_pad_plus, new_o_y, x_pad, x_pad_plus, new_o_x, z_pad, z_pad_plus, new_o_z = self._pad_model(
