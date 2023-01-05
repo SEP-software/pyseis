@@ -121,7 +121,6 @@ class WaveEquation(abc.ABC):
         key: str(value)[1:-1] if isinstance(value, list) else str(value)
         for key, value in dict.items()
     }
-    kwargs_str['info'] = '1'
 
     return genericIO.io(params=kwargs_str)
 
