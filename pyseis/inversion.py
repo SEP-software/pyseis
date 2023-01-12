@@ -1,3 +1,15 @@
+"""
+This module provides the Fwi class for running Full Waveform Inversion (FWI)
+
+Can be used with wave equation solvers provided in the pyseis python package
+which currently include the acoustic,constant density, isotrpoic wave equation
+and the elastic, isotropic wave equation, both two and three dimensions. In
+other words, the Fwi class can be used to solve acoustic or elastic FWI in 2D
+and 3D. This module also includes several sub-modules such as pyProblem,
+pyStepper, pyStopper, pyOperator, pyNonLinearSolver, and genericIO which are
+taken from Ettore Biondi's pysolver module. The Fwi class allows to setup and
+run the inversion problem with various solvers and steppers.
+"""
 from datetime import datetime
 import pathlib
 import os
@@ -37,6 +49,31 @@ class Fwi():
                prefix=None,
                iterations_per_save=10,
                iterations_in_buffer=3):
+    """
+    Initialize the FWI (Full Waveform Inversion) class. 
+    It is used to set up all the attributes of the FWI object
+    that are required to run the inversion.
+    
+    Parameters:
+      wave_eq_solver (class): the wave equation solver
+      obs_data (numpy.ndarray): observed data
+      starting_model (numpy.ndarray): starting model
+      num_iter (int): number of iterations
+      model_bounds (List[numpy.ndarray], optional): Bounds of the model, if any.
+        Defaults to None.
+      solver_type (str, optional): solver to use, options are 'nlcg', 'lbfgs',
+        or 'lbfgsb'. Defaults to 'lbfgs'. 
+      stepper_type (str, optional): stepper to use options are 'parabolic', 
+        'linear', 'parabolicNew'. Defaults to 'parabolic'.
+      max_steps (int, optional): maximum number of steps to take. Defaults to None.
+      work_dir (str, optional): working directory where history of the inversion is saved.
+        Defaults to 'wrk'.
+      prefix (str, optional): prefix for saving history in the working directory. Defaults to None.
+      iterations_per_save (int, optional): Number of iterations to save.
+        Defaults to 10.
+      iterations_in_buffer (int, optional): Number of iterations to store in buffer.
+        Defaults to 3.
+    """
     # check that the observed data matches the data space of the wave_eq_solver
     if wave_eq_solver._get_data().shape != obs_data.shape:
       raise RuntimeError(
@@ -72,6 +109,12 @@ class Fwi():
                                     iterations_in_buffer=iterations_in_buffer)
 
   def run(self, verbose=1):
+    """
+    Run the inversion problem with the given attributes.
+    
+    Parameters:
+      verbose (int, optional): level of verbosity. Defaults to 1.
+    """
     self.solver.run(self.problem, verbose=verbose)
     self.history = load_history(self.work_dir, self.prefix,
                                 self.wave_eq_solver._truncate_model)
@@ -79,6 +122,13 @@ class Fwi():
     return self.history
 
   def _make_fwi_op(self, wave_eq_solver):
+    """
+    Helper function to create the FWI operator which includes
+    the nonlinear and linearized wave equation.
+    
+    Parameters:
+        wave_eq_solver (class): the wave equation solver
+    """
     if wave_eq_solver._jac_wave_op is None:
       wave_eq_solver._setup_jac_wave_op()
 
@@ -87,6 +137,15 @@ class Fwi():
         wave_eq_solver._jac_wave_op.set_background)
 
   def _make_problem(self, wave_eq_solver, operator, model_bounds=None):
+    """
+    Helper function to create inversion problem
+
+    Parameters:
+      wave_eq_solver (class): the wave equation solver
+      operator (class): FWI operator
+      model_bounds (List[numpy.ndarray], optional): Bounds of the model, if any.
+        Defaults to None.
+    """
     if model_bounds is None:
       min_bound = None
       max_bound = None
@@ -101,6 +160,16 @@ class Fwi():
                                     maxBound=max_bound)
 
   def _make_bounds(self, wave_eq_solver, bound):
+    """
+    Helper function to create bounds for the inversion problem.
+    
+    Parameters:
+      wave_eq_solver (class): The wave equation solver
+      bounds (numpy.ndarray): The bounds on the model to be used.
+    
+    Returns:
+      bounds (numpy.ndarray): The bounds that are set.
+    """
     bound_sep = wave_eq_solver.model_sep.clone()
     bound_arr = bound_sep.getNdArray()
     bound_arr[bound_arr != 0.0] == bound
@@ -117,7 +186,27 @@ class Fwi():
                    iterations_per_save=10,
                    iterations_in_buffer=3,
                    overwrite=True):
+    """
+    Helper function to create a solver for the inversion problem.
 
+    Parameters:
+      num_iter (int): The number of iterations to run the solver.
+      solver_type (str, optional): The type of solver to use. Defaults to 
+        'lbfgs'.
+      stepper_type (str, optional): The type of stepper to use. Defaults to
+        'parabolic'.
+      max_steps (int, optional): Maximum number of steps the solver can take.
+        Defaults to None.
+      work_dir (str, optional): The working directory where the history of the
+        inversion is saved. 
+        Defaults to 'wrk'.
+      prefix (str, optional): A prefix for saving history in the working
+        directory. Defaults to None.
+      iterations_per_save (int, optional): The number of iterations to save.
+        Defaults to 10.
+      iterations_in_buffer (int, optional): The number of iterations to store
+        in buffer. Defaults to 3.
+    """
     if solver_type not in SOLVERS.keys():
       raise RuntimeError(
           f'{solver_type} not a valid solver type. Options are: { SOLVERS.keys()}'
@@ -166,6 +255,17 @@ class Fwi():
 
 
 def load_history(work_dir, prefix, truncate_padding_func=None):
+  """
+  Load the history of the inversion from the working directory.
+
+  Parameters:
+    work_dir (str): The working directory where the history is saved.
+    prefix (str): The prefix for the history files.
+    truncate_model (callable): A callable that truncates the model if needed.
+  
+  Returns:
+    history (List[dict]): The history of the inversion.
+  """
   model_space_keys = ['inv_mod', 'gradient', 'model']
   other_keys = ['residual', 'obj']
 
