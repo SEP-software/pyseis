@@ -30,7 +30,7 @@ D_X_REC = 11.0
 Z_REC = 5.0
 #expected values
 SUB = 3
-I_GPUS = [6, 7]
+I_GPUS = [0, 1]
 
 
 @pytest.fixture
@@ -456,10 +456,11 @@ def test_init_linear(ricker_wavelet, fixed_rec_locations, src_locations,
   assert acoustic_2d._jac_wave_op == None
 
   # act
-  acoustic_2d._setup_jac_wave_op(acoustic_2d.data_sep, acoustic_2d.model_sep,
-                                 acoustic_2d.sep_param, acoustic_2d.src_devices,
-                                 acoustic_2d.rec_devices,
-                                 acoustic_2d.wavelet_lin_sep)
+  # acoustic_2d._setup_jac_wave_op(acoustic_2d.data_sep, acoustic_2d.model_sep,
+  #                                acoustic_2d.sep_param, acoustic_2d.src_devices,
+  #                                acoustic_2d.rec_devices,
+  #                                acoustic_2d.wavelet_lin_sep)
+  acoustic_2d._setup_jac_wave_op()
 
   # assert
   assert isinstance(acoustic_2d._jac_wave_op, wave_equation._JacobianWaveCppOp)

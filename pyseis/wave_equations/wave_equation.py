@@ -63,9 +63,10 @@ class WaveEquation(abc.ABC):
     if background_model is not None:
       self._setup_model(background_model)
     if self._jac_wave_op is None:
-      self._setup_jac_wave_op(self.data_sep, self.model_sep, self.sep_param,
-                              self.src_devices, self.rec_devices,
-                              self.wavelet_lin_sep, lin_model)
+      # self._setup_jac_wave_op(self.data_sep, self.model_sep, self.sep_param,
+      #                         self.src_devices, self.rec_devices,
+      #                         self.wavelet_lin_sep, lin_model)
+      self._setup_jac_wave_op(lin_model)
     # self._jac_wave_op.set_background(self.model_sep)
     self._jac_wave_op.forward(0, self.lin_model_sep, self.data_sep)
     return np.copy(self.data_sep.getNdArray())
@@ -75,18 +76,17 @@ class WaveEquation(abc.ABC):
     if background_model is not None:
       self._setup_model(background_model)
     if self._jac_wave_op is None:
-      self._setup_jac_wave_op(self.data_sep, self.model_sep, self.sep_param,
-                              self.src_devices, self.rec_devices,
-                              self.wavelet_lin_sep)
+      # self._setup_jac_wave_op(self.data_sep, self.model_sep, self.sep_param,
+      #                         self.src_devices, self.rec_devices,
+      #                         self.wavelet_lin_sep)
+      self._setup_jac_wave_op()
     # self._jac_wave_op.set_background(self.model_sep)
     self._jac_wave_op.adjoint(0, self.lin_model_sep, self.data_sep)
     return np.copy(self._truncate_model(self.lin_model_sep.getNdArray()))
 
   def dot_product_test(self, verb=False, tolerance=0.00001):
     if self._jac_wave_op is None:
-      self._setup_jac_wave_op(self.data_sep, self.model_sep, self.sep_param,
-                              self.src_devices, self.rec_devices,
-                              self.wavelet_lin_sep)
+      self._setup_jac_wave_op()
 
     return self._jac_wave_op.dot_product_test(verb, tolerance)
 
@@ -131,15 +131,8 @@ class WaveEquation(abc.ABC):
                                            wavelet_nl_sep,
                                            self._nl_wave_pybind_class)
 
-  def _setup_jac_wave_op(self,
-                         data_sep,
-                         model_sep,
-                         sep_par,
-                         src_devices,
-                         rec_devices,
-                         wavelet_lin_sep,
-                         lin_model=None):
-    self.lin_model_sep = model_sep.clone()
+  def _setup_jac_wave_op(self, lin_model=None):
+    self.lin_model_sep = self.model_sep.clone()
     if lin_model is None:
       self.lin_model_sep.zero()
     else:
@@ -147,13 +140,24 @@ class WaveEquation(abc.ABC):
                                   self.model_padding, self.model_origins,
                                   self.free_surface)[0]
       self.lin_model_sep.getNdArray()[:] = lin_model
-    self._jac_wave_op = _JacobianWaveCppOp(self.lin_model_sep, data_sep,
-                                           model_sep, sep_par, src_devices,
-                                           rec_devices, wavelet_lin_sep,
+    self._jac_wave_op = _JacobianWaveCppOp(self.lin_model_sep, self.data_sep,
+                                           self.model_sep, self.sep_param,
+                                           self.src_devices, self.rec_devices,
+                                           self.wavelet_lin_sep,
                                            self._jac_wave_pybind_class)
 
   def _set_data(self, data):
     self.data_sep.getNdArray()[:] = data
+
+  def _get_data(self):
+    return self.data_sep.getNdArray()
+
+  def _get_model(self, padded=False):
+    model = self.model_sep.getNdArray()
+    if not padded:
+      model = self._truncate_model(model)
+
+    return model
 
   @abc.abstractmethod
   def _make_sep_wavelets(self, wavelet, d_t):

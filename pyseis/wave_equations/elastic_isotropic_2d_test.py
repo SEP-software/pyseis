@@ -432,10 +432,7 @@ def test_init_linear(ricker_wavelet, fixed_rec_locations, src_locations,
   assert elastic_2d._jac_wave_op == None
 
   # act
-  elastic_2d._setup_jac_wave_op(elastic_2d.data_sep, elastic_2d.model_sep,
-                                elastic_2d.sep_param, elastic_2d.src_devices,
-                                elastic_2d.rec_devices,
-                                elastic_2d.wavelet_lin_sep)
+  elastic_2d._setup_jac_wave_op()
 
   # assert
   assert isinstance(elastic_2d._jac_wave_op, wave_equation._JacobianWaveCppOp)

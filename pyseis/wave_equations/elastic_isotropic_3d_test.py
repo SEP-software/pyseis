@@ -502,10 +502,7 @@ def test_init_linear(trapezoid_wavelet, fixed_rec_locations, src_locations,
   assert elastic_3d._jac_wave_op == None
 
   # act
-  elastic_3d._setup_jac_wave_op(elastic_3d.data_sep, elastic_3d.model_sep,
-                                elastic_3d.sep_param, elastic_3d.src_devices,
-                                elastic_3d.rec_devices,
-                                elastic_3d.wavelet_lin_sep)
+  elastic_3d._setup_jac_wave_op()
 
   # assert
   assert isinstance(elastic_3d._jac_wave_op, wave_equation._JacobianWaveCppOp)

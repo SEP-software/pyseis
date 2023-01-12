@@ -470,10 +470,7 @@ def test_init_linear(ricker_wavelet, fixed_rec_locations, src_locations,
   assert acoustic_3d._jac_wave_op == None
 
   # act
-  acoustic_3d._setup_jac_wave_op(acoustic_3d.data_sep, acoustic_3d.model_sep,
-                                 acoustic_3d.sep_param, acoustic_3d.src_devices,
-                                 acoustic_3d.rec_devices,
-                                 acoustic_3d.wavelet_lin_sep)
+  acoustic_3d._setup_jac_wave_op()
 
   # assert
   assert isinstance(acoustic_3d._jac_wave_op, wave_equation._JacobianWaveCppOp)
