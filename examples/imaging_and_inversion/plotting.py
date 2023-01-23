@@ -13,19 +13,25 @@ def plot_model(model,
                cbar=False,
                cbar_label='$v_p$ (m/s)',
                src_locations=None,
-               rec_locations=None):
+               rec_locations=None,
+               vlims=None):
   fig, ax = plt.subplots(figsize=figsize)
 
   x_axis = sampling[0] * np.arange(model.shape[0])
   z_axis = sampling[1] * np.arange(model.shape[1])
 
   clip = np.percentile(model, pclip)
+  vmin=0
+  vmax=clip
+  if vlims:
+    vmin = vlims[0]
+    vax = vlims[1]
   pc = plt.pcolormesh(x_axis,
                       z_axis,
                       model.T,
                       shading='nearest',
-                      vmin=0,
-                      vmax=clip,
+                      vmin=vmin,
+                      vmax=vmax,
                       cmap=cmap)
 
   plt.gca().invert_yaxis()
@@ -95,17 +101,17 @@ def plot_data(data,
   skip = data.shape[0] // n_shots
   data = data[::skip]
   if src_locations is not None:
-    src_locations = src_locations[::skip, 0]
+    src_locations = src_locations[::skip]
   if rec_locations is None:
     rec_locations = np.arange(data.shape[1])
     xlabel = 'rec #'
-
+    
   t_axis = d_t * np.arange(data.shape[-1])
 
   if clip is None:
     clip = np.percentile(np.abs(data), pclip)
   for i, (ax, shot) in enumerate(zip(axs, data)):
-    ax.pcolormesh(rec_locations[:, 0],
+    ax.pcolormesh(rec_locations,
                   t_axis,
                   shot.T,
                   shading='nearest',

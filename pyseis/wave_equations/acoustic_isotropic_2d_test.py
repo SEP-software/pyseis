@@ -1,6 +1,7 @@
 from mock import patch
 import pytest
 import numpy as np
+from scipy import ndimage
 from pyseis.wave_equations import acoustic_isotropic, wave_equation
 from pyseis.wavelets.acoustic import Acoustic2D
 import SepVector
@@ -16,7 +17,7 @@ N_Z_PAD = 20
 VP_1 = 1500
 VP_2 = 2500
 
-N_T = 1000
+N_T = 500
 D_T = 0.01
 
 DELAY = 2.0
@@ -82,8 +83,18 @@ def vp_model_shallow_half_space():
 
 
 # mock the make function so we can test all of the individual function calls within make below
-def mock_make(self, model, wavelet, d_t, src_locations, rec_locations, gpus,
-              subsampling):
+def mock_make(self,
+              model,
+              wavelet,
+              d_t,
+              src_locations,
+              rec_locations,
+              gpus,
+              model_padding,
+              model_origins,
+              model_sampling,
+              subsampling,
+              free_surface=False):
   return None
 
 
@@ -171,15 +182,16 @@ def test_setup_wavelet(ricker_wavelet):
   # Arrange
   with patch.object(acoustic_isotropic.AcousticIsotropic2D, "_make", mock_make):
     acoustic_2d = acoustic_isotropic.AcousticIsotropic2D(
-        None, None, None, None, None, None, None)
+        None, (D_X, D_Z), None, None, None, None, None)
 
     # Act
-    acoustic_2d._setup_wavelet(ricker_wavelet, D_T)
+    wavelet_nl_sep, wavelet_lin_sep = acoustic_2d._setup_wavelet(
+        ricker_wavelet, D_T)
 
     # assert
-    assert isinstance(acoustic_2d.wavelet_nl_sep, SepVector.floatVector)
-    assert isinstance(acoustic_2d.wavelet_lin_sep, list)
-    assert isinstance(acoustic_2d.wavelet_lin_sep[0], pySepVector.float2DReg)
+    assert isinstance(wavelet_nl_sep, SepVector.floatVector)
+    assert isinstance(wavelet_lin_sep, list)
+    assert isinstance(wavelet_lin_sep[0], pySepVector.float2DReg)
 
 
 def test_setup_data(variable_rec_locations, src_locations, vp_model_half_space):
@@ -193,15 +205,18 @@ def test_setup_data(variable_rec_locations, src_locations, vp_model_half_space):
         None,
         None,
         model_padding=(N_X_PAD, N_Z_PAD))
-    acoustic_2d._setup_model(vp_model_half_space)
+    acoustic_2d.model_sep, acoustic_2d.model_padding = acoustic_2d._setup_model(
+        vp_model_half_space,
+        model_padding=(N_X_PAD, N_Z_PAD),
+        model_sampling=(D_X, D_Z))
     acoustic_2d._setup_src_devices(src_locations, N_T)
     acoustic_2d._setup_rec_devices(variable_rec_locations, N_T)
 
     # Act
-    acoustic_2d._setup_data(N_T, D_T)
+    data_sep = acoustic_2d._setup_data(N_T, D_T)
 
     # Assert
-    assert acoustic_2d.data_sep.getNdArray().shape == (N_SRCS, N_REC, N_T)
+    assert data_sep.getNdArray().shape == (N_SRCS, N_REC, N_T)
 
 
 def test_setup_data_fails_if_no_src_or_rec(variable_rec_locations,
@@ -216,7 +231,10 @@ def test_setup_data_fails_if_no_src_or_rec(variable_rec_locations,
         None,
         None,
         model_padding=(N_X_PAD, N_Z_PAD))
-    acoustic_2d._setup_model(vp_model_half_space)
+    acoustic_2d.model_sep, acoustic_2d.model_padding = acoustic_2d._setup_model(
+        vp_model_half_space,
+        model_padding=(N_X_PAD, N_Z_PAD),
+        model_sampling=(D_X, D_Z))
 
     # Act and Assert
     with pytest.raises(RuntimeError):
@@ -245,14 +263,17 @@ def test_setup_rec_devices_variable_receivers(variable_rec_locations,
         None,
         None,
         model_padding=(N_X_PAD, N_Z_PAD))
-    acoustic_2d._setup_model(vp_model_half_space)
+    acoustic_2d.model_sep, acoustic_2d.model_padding = acoustic_2d._setup_model(
+        vp_model_half_space,
+        model_padding=(N_X_PAD, N_Z_PAD),
+        model_sampling=(D_X, D_Z))
     acoustic_2d._setup_src_devices(src_locations, N_T)
 
     # Act
-    acoustic_2d._setup_rec_devices(variable_rec_locations, N_T)
+    rec_devices = acoustic_2d._setup_rec_devices(variable_rec_locations, N_T)
 
     # Assert
-    assert len(acoustic_2d.rec_devices) == N_SRCS
+    assert len(rec_devices) == N_SRCS
 
 
 def test_setup_rec_devices_variable_receivers_nshot_mismatch(
@@ -267,7 +288,10 @@ def test_setup_rec_devices_variable_receivers_nshot_mismatch(
         None,
         None,
         model_padding=(N_X_PAD, N_Z_PAD))
-    acoustic_2d._setup_model(vp_model_half_space)
+    acoustic_2d.model_sep, acoustic_2d.model_padding = acoustic_2d._setup_model(
+        vp_model_half_space,
+        model_padding=(N_X_PAD, N_Z_PAD),
+        model_sampling=(D_X, D_Z))
     acoustic_2d._setup_src_devices(src_locations, N_T)
 
     # Act and Assert
@@ -287,14 +311,17 @@ def test_setup_rec_devices_fixed_receivers(fixed_rec_locations, src_locations,
         None,
         None,
         model_padding=(N_X_PAD, N_Z_PAD))
-    acoustic_2d._setup_model(vp_model_half_space)
+    acoustic_2d.model_sep, acoustic_2d.model_padding = acoustic_2d._setup_model(
+        vp_model_half_space,
+        model_padding=(N_X_PAD, N_Z_PAD),
+        model_sampling=(D_X, D_Z))
     acoustic_2d._setup_src_devices(src_locations, N_T)
 
     # Act
-    acoustic_2d._setup_rec_devices(fixed_rec_locations, N_T)
+    rec_devices = acoustic_2d._setup_rec_devices(fixed_rec_locations, N_T)
 
     # Assert
-    assert len(acoustic_2d.rec_devices) == N_SRCS
+    assert len(rec_devices) == N_SRCS
 
 
 def test_setup_rec_devices_fails_if_no_src_locations(fixed_rec_locations,
@@ -309,7 +336,10 @@ def test_setup_rec_devices_fails_if_no_src_locations(fixed_rec_locations,
         None,
         None,
         model_padding=(N_X_PAD, N_Z_PAD))
-    acoustic_2d._setup_model(vp_model_half_space)
+    acoustic_2d.model_sep, acoustic_2d.model_padding = acoustic_2d._setup_model(
+        vp_model_half_space,
+        model_padding=(N_X_PAD, N_Z_PAD),
+        model_sampling=(D_X, D_Z))
 
     # Act and Assert
     with pytest.raises(RuntimeError):
@@ -343,13 +373,16 @@ def test_setup_src_devices(src_locations, vp_model_half_space):
         None,
         None,
         model_padding=(N_X_PAD, N_Z_PAD))
-    acoustic_2d._setup_model(vp_model_half_space)
+    acoustic_2d.model_sep, acoustic_2d.model_padding = acoustic_2d._setup_model(
+        vp_model_half_space,
+        model_padding=(N_X_PAD, N_Z_PAD),
+        model_sampling=(D_X, D_Z))
 
     # Act
-    acoustic_2d._setup_src_devices(src_locations, N_T)
+    src_devices = acoustic_2d._setup_src_devices(src_locations, N_T)
 
     # Assert
-    assert len(acoustic_2d.src_devices) == N_SRCS
+    assert len(src_devices) == N_SRCS
 
 
 def test_setup_src_devices_fails_if_no_model(src_locations):
@@ -381,7 +414,10 @@ def test_setup_model(vp_model_half_space):
         model_padding=(N_X_PAD, N_Z_PAD))
 
     # Act
-    acoustic_2d._setup_model(vp_model_half_space)
+    acoustic_2d.model_sep, acoustic_2d.model_padding = acoustic_2d._setup_model(
+        vp_model_half_space,
+        model_padding=(N_X_PAD, N_Z_PAD),
+        model_sampling=(D_X, D_Z))
 
     # Assert
     assert (acoustic_2d.fd_param['n_x'] -
@@ -411,21 +447,25 @@ def test_pad_model(vp_model_half_space):
   # Arrange
   with patch.object(acoustic_isotropic.AcousticIsotropic2D, "_make", mock_make):
     acoustic_2d = acoustic_isotropic.AcousticIsotropic2D(
-        None, None, None, None, None, None, None)
+        None, (D_X, D_Z), None, None, None, None, None)
 
     # Act
-    model, x_pad, x_pad_plus, new_o_x, z_pad, z_pad_plus, new_o_z = acoustic_2d._pad_model(
-        vp_model_half_space, (D_X, D_Z), (N_X_PAD, N_Z_PAD))
+    padding, new_shape, new_origins = acoustic_2d._calc_pad_params(
+        (N_X, N_Z), (N_X_PAD, N_Z_PAD), (D_X, D_Z), acoustic_2d._FAT)
+    model = acoustic_2d._pad_model(vp_model_half_space, padding,
+                                   acoustic_2d._FAT)
 
     # Assert
     assert (model.shape[0] -
             2 * acoustic_2d._FAT) % acoustic_2d._BLOCK_SIZE == 0
     assert (model.shape[1] -
             2 * acoustic_2d._FAT) % acoustic_2d._BLOCK_SIZE == 0
-    assert x_pad == N_X_PAD
-    assert x_pad_plus == model.shape[0] - (N_X + N_X_PAD + 2 * acoustic_2d._FAT)
-    assert z_pad == N_Z_PAD
-    assert z_pad_plus == model.shape[1] - (N_Z + N_Z_PAD + 2 * acoustic_2d._FAT)
+    assert padding[0][0] == N_X_PAD
+    assert padding[0][1] == model.shape[0] - (N_X + N_X_PAD +
+                                              2 * acoustic_2d._FAT)
+    assert padding[1][0] == N_Z_PAD
+    assert padding[1][1] == model.shape[1] - (N_Z + N_Z_PAD +
+                                              2 * acoustic_2d._FAT)
 
     #check model gets set
     start_x = acoustic_2d._FAT + N_X_PAD
@@ -439,8 +479,8 @@ def test_pad_model(vp_model_half_space):
 #### AcousticIsotropic2D Born tests ###########
 ###############################################
 @pytest.mark.gpu
-def test_init_linear(ricker_wavelet, fixed_rec_locations, src_locations,
-                     vp_model_half_space):
+def test_init_jacobian(ricker_wavelet, fixed_rec_locations, src_locations,
+                       vp_model_half_space):
   # setup
   acoustic_2d = acoustic_isotropic.AcousticIsotropic2D(
       model=vp_model_half_space,
@@ -453,17 +493,18 @@ def test_init_linear(ricker_wavelet, fixed_rec_locations, src_locations,
       gpus=I_GPUS)
 
   #assert
-  assert acoustic_2d._jac_wave_op == None
+  # assert acoustic_2d._jac_wave_op == None
 
   # act
   # acoustic_2d._setup_jac_wave_op(acoustic_2d.data_sep, acoustic_2d.model_sep,
   #                                acoustic_2d.sep_param, acoustic_2d.src_devices,
   #                                acoustic_2d.rec_devices,
   #                                acoustic_2d.wavelet_lin_sep)
-  acoustic_2d._setup_jac_wave_op()
+  # acoustic_2d._setup_jac_wave_op()
 
   # assert
-  assert isinstance(acoustic_2d._jac_wave_op, wave_equation._JacobianWaveCppOp)
+  assert isinstance(acoustic_2d._operator.lin_op,
+                    wave_equation._JacobianWaveCppOp)
 
 
 @pytest.mark.gpu
@@ -484,6 +525,34 @@ def test_jacobian(ricker_wavelet, fixed_rec_locations, src_locations,
 
   # act
   lin_data = acoustic_2d.jacobian(lin_model)
+
+  # Assert
+  assert lin_data.shape == (N_SRCS, N_REC, N_T)
+  assert not np.all((lin_data == 0))
+  assert not np.any(np.isnan(lin_data))
+
+
+@pytest.mark.gpu
+def test_jacobian_background_provided(ricker_wavelet, fixed_rec_locations,
+                                      src_locations, vp_model_half_space):
+  # setup
+  acoustic_2d = acoustic_isotropic.AcousticIsotropic2D(
+      model=vp_model_half_space,
+      model_sampling=(D_X, D_Z),
+      model_padding=(N_X_PAD, N_Z_PAD),
+      wavelet=ricker_wavelet,
+      d_t=D_T,
+      src_locations=src_locations,
+      rec_locations=fixed_rec_locations,
+      gpus=I_GPUS)
+  #reflectivity model
+  lin_model = np.gradient(vp_model_half_space, axis=-1)
+
+  #smooth background model
+  smooth = ndimage.gaussian_filter(vp_model_half_space, 10)
+
+  # act
+  lin_data = acoustic_2d.jacobian(lin_model, smooth)
 
   # Assert
   assert lin_data.shape == (N_SRCS, N_REC, N_T)

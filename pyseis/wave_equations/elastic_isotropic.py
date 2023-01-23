@@ -25,6 +25,8 @@ parallelizes shots over gpus.
 import numpy as np
 from math import ceil
 import abc
+import typing
+
 import Hypercube
 import SepVector
 import pyOperator as Operator
@@ -34,154 +36,20 @@ from pyElastic_iso_float_nl import spaceInterpGpu as device_gpu_2d
 from pyElastic_iso_float_nl import nonlinearPropElasticShotsGpu, ostream_redirect
 from pyElastic_iso_float_born import BornElasticShotsGpu
 from dataCompModule import ElasticDatComp as _ElasticDatComp2D
+from elasticParamConvertModule import ElasticConv as _ElasticModelConv2D
+from elasticParamConvertModule import ElasticConvJab as _ElasticModelConvJac2D
 # 3d pybind modules
 from pyElastic_iso_float_nl_3D import spaceInterpGpu_3D as device_gpu_3d
 from pyElastic_iso_float_nl_3D import nonlinearPropElasticShotsGpu_3D
 from pyElastic_iso_float_born_3D import BornElasticShotsGpu_3D
 from dataCompModule_3D import ElasticDatComp_3D as _ElasticDatComp_3D
+from elasticParamConvertModule_3D import ElasticConv_3D as _ElasticModelConv3D
+from elasticParamConvertModule_3D import ElasticConvJab_3D as _ElasticModelConvJac3D
 
 
 class ElasticIsotropic(wave_equation.WaveEquation):
   _BLOCK_SIZE = 16
   _N_MODEL_PARAMETERS = 3
-
-  def __init__(self):
-    super().__init__()
-
-  def _make(self,
-            model,
-            wavelet,
-            d_t,
-            src_locations,
-            rec_locations,
-            gpus,
-            recording_components,
-            lame_model=False,
-            subsampling=None):
-    """Make an elastic, isotropic wave-equation operator.
-
-    Operator can be used to forward model the elastic, isotropic wave equation
-    using a velocity-stress formulation, 2nd order time derivative stencil, and
-    10th order laplacian stencil with a staggered grid implementation. 
-
-    Args:
-        model (np array): un-padded earth model that matches dimensions of wave
-          equation operator (2D or 3D). Can be parameterized parameterized by
-          wave velocity [vp,vs,rho] or lame parameters [rho,lame,mu]. If using
-          lame parameterization, make sure the lame_model argument is set to
-          True.
-            - In 2D case, model will have (3, n_x, n_z) shape.
-            - In 3D case, model will have (3, n_y, n_x, n_z) shape.
-        model_sampling (tuple): spatial sampling of provided earth model.
-        model_padding (tuple): desired amount of padding to use at propagation
-        time to add on each axis of the earth model during wave prop.
-        wavelet (np array): source signature of wave equation. 
-          - In 2D case, wavelet will have shape (5, n_t) describing the five
-            source components (Fx, Fz, sxx, szz, sxz)
-          - In 3D case, wavelet will have shape (9, n_t) describing the nine
-            source components (Fy, Fx, Fz, syy, sxx, szz, syx, syz, sxz)
-        n_t (int): number of time step to propagate
-        d_t (float): temporal sampling rate (s)
-        src_locations (np array): coordinates of each seismic source to
-          propagate. 
-            - In 2D has shape (n_src, 2) where two values on fast axis describe
-              the x and y positions, respectively.
-            - In 3D has shape (n_src, 3) where the fast axis describes the y, x, and z
-              positions, respectively.  
-        rec_locations (np array): receiver locations of each src. The number of
-          receivers must be the same for each shot, but the position of the
-          receivers can change. 
-            - In the 2D case, can either have shape (n_rec, 2) if the receiver
-              positions are constant or (n_src,n_rec,2) if the receiver
-              positions change with each shot.
-            - In the 3D case, can either have shape (n_rec, 3) if the receiver
-              positions are constant or (n_src,n_rec,3) if the receiver
-              positions change with each shot. 
-        gpus (list): the gpu devices to use for wave propagation.
-        model_origins (tuple, optional): Origin of each axis of the earth
-          model. If None, the origins are assumed to be 0.0.
-        lame_model (bool, optional): Whether the provided model is parameterized
-          by wave velocity [vp,vs,rho] or lame parameters [rho,lame,mu].
-          Defaults to False.
-    """
-    # pads model, makes self.model_sep, and updates self.fd_param
-    self._setup_model(model, lame_model)
-
-    # make and set wavelet
-    self._setup_wavelet(wavelet, d_t)
-
-    # make and set source devices
-    self._setup_src_devices(src_locations, self.fd_param['n_t'])
-
-    # make and set rec devices
-    self._setup_rec_devices(rec_locations, self.fd_param['n_t'])
-
-    # make and set data space
-    self._setup_data(self.fd_param['n_t'], d_t)
-
-    # calculate and find subsampling
-    self._setup_subsampling(model, d_t, self.model_sampling, lame_model)
-    if subsampling is not None:
-      if subsampling < self.fd_param['sub']:
-        raise RuntimeError(
-            f"User specified subsampling={subsampling} that does not satisfy Courant condition. subsampling must be >={self.fd_param['sub']}"
-        )
-      self.fd_param['sub'] = subsampling
-    # set gpus list
-    self.fd_param['gpus'] = str(gpus)[1:-1]
-
-    #set ginsu
-    self.fd_param['ginsu'] = 0
-
-    # make and set sep par
-    self._setup_sep_par(self.fd_param)
-
-    # make and set gpu operator
-    self._setup_nl_wave_op(self.data_sep, self.model_sep, self.sep_param,
-                           self.src_devices, self.rec_devices,
-                           self.wavelet_nl_sep)
-
-    # append wavefield sampling to gpu operator
-    self._setup_wavefield_sampling_operator(recording_components, self.data_sep)
-
-  def _setup_subsampling(self, model, d_t, model_sampling, lame_model=False):
-    sub = self._calc_subsampling(model, d_t, model_sampling, lame_model)
-    if 'sub' in self.fd_param:
-      if sub > self.fd_param['sub']:
-        raise RuntimeError(
-            'Newly set model requires greater subsampling than what wave equation operator was initialized with. This is currently not allowed.'
-        )
-    self.fd_param['sub'] = sub
-
-  def _calc_subsampling(self, model, d_t, model_sampling, lame_model=False):
-    """Find time downsampling needed during propagation to remain stable.
-
-    Args:
-        model (nd nparray): model or model that will be propagated in. Should
-          not include padding.
-        d_t (float): initial sampling rate
-        d_x (float): sampling rate of axis -2 of model
-        d_z (float): sampling rate of axis -1 of model
-
-    Returns:
-        int: amount that input  d_t is to be downsampled in order for nl prop to remain stable
-    """
-    if lame_model:
-      model = convert_to_vel(model)
-    max_vel = np.amax(model[:2])
-    d_t_sub = ceil(max_vel * d_t /
-                   (min(model_sampling) * wave_equation.COURANT_LIMIT))
-
-    return d_t_sub
-
-  @abc.abstractmethod
-  def _setup_wavefield_sampling_operator(self, recording_components, data_sep):
-    pass
-
-
-class ElasticIsotropic2D(ElasticIsotropic):
-  _N_WFLD_COMPONENTS = 5
-  _FAT = 4
 
   def __init__(self,
                model,
@@ -191,112 +59,115 @@ class ElasticIsotropic2D(ElasticIsotropic):
                src_locations,
                rec_locations,
                gpus,
-               model_padding=(50, 50),
-               model_origins=(0.0, 0.0),
-               lame_model=False,
-               recording_components=[
-                   'vx',
-                   'vz',
-                   'sxx',
-                   'szz',
-                   'sxz',
-               ],
+               model_padding=None,
+               model_origins=None,
+               recording_components=None,
                subsampling=None,
                free_surface=False):
+    if not recording_components:
+      recording_components = self._DEFAULT_RECORDING_COMPONENTS
+    self.recording_components = recording_components
+
+    super().__init__(model, model_sampling, wavelet, d_t, src_locations,
+                     rec_locations, gpus, model_padding, model_origins,
+                     subsampling, free_surface)
+
+  def _setup_wavefield_sampling_operator(self, _operator, recording_components,
+                                         data_sep):
+    # _ElasticDatComp_nD expects a string of comma seperated values
+    recording_components = ",".join(recording_components)
+    #make sampling opeartor
+    wavefield_sampling_operator = self._wavefield_sampling_class(
+        recording_components, data_sep)
+    wavefield_sampling_operator = Operator.NonLinearOperator(
+        wavefield_sampling_operator, wavefield_sampling_operator)
+
+    return Operator.CombNonlinearOp(_operator, wavefield_sampling_operator)
+
+    # self.data_sep = self._operator.range.clone()
+
+  def _get_model_shape(self, model):
+    return model.shape[1:]
+
+  def _pad_model(self, model: np.ndarray, padding: typing.Tuple,
+                 fat: int) -> np.ndarray:
     """
-    Args:
-        model (np array): un-padded earth model that is 2D. Can be parameterized
-          parameterized by wave velocity [vp,vs,rho] or lame parameters
-          [rho,lame,mu]. If using lame parameterization, make sure the
-          lame_model argument is set to True. Must have (3, n_x, n_z) shape.
-        model_sampling (tuple): spatial sampling of provided earth model
-          (d_x, d_z).
-        wavelet (np array): source signature of wave equation. Will have shape
-          (5, n_t) describing the five source components (Fx, Fz, sxx, szz, sxz)
-        d_t (float): temporal sampling rate (s) of recorded data NOT wave prop
-          (see subsampling).
-        src_locations (np array): coordinates of each seismic source to
-          propagate. Has shape (n_src, 3) where the fast axis describes the 
-          y, x, and z positions, respectively.  
-        rec_locations (np array): receiver locations of each src. The number of
-          receivers must be the same for each shot, but the position of the
-          receivers can change. Can either have shape (n_rec, 2) if the receiver
-          positions are constant or (n_src,n_rec,2) if the receiver positions 
-          change with each shot.
-        gpus (list): the numbered gpu devices to use for wave propagation e.g. [0,1]
-        model_padding (tuple, optional): desired amount of padding (in samples) to use at
-          propagation time to add on each axis of the earth model during wave
-          prop.
-        model_origins (tuple, optional): Origin of each axis of the earth
-          model. If None, the origins are assumed to be 0.0.
-        lame_model (bool, optional): Whether the provided model is parameterized
-          by wave velocity [vp,vs,rho] or lame parameters [rho,lame,mu].
-          Defaults to False.
-        subsampling (int, optional): rate to downsample d_t for wave prop time
-          marching. If not provided, is dynamically calculated in order for wave
-          prop to remain stable.
-        free_surface (bool, optional): whether or not to use a free surface
-          implementation.
+    Add padding to the model.
+
+    Parameters:
+        model (np.ndarray): 3D model to be padded
+        padding (Tuple[int, int]): Tuple of integers representing the padding of the model in each axis
+
+    Returns:
+        np.ndarray: Padded 3D model
     """
-    super().__init__()
-    self._nl_wave_pybind_class = nonlinearPropElasticShotsGpu
-    self._jac_wave_pybind_class = BornElasticShotsGpu
-    self.required_sep_params = [
-        'nx', 'dx', 'nz', 'dz', 'xPadMinus', 'xPadPlus', 'zPadMinus',
-        'zPadPlus', 'mod_par', 'dts', 'nts', 'fMax', 'sub', 'nExp', 'iGpu',
-        'blockSize', 'fat', 'surfaceCondition'
-    ]
+    fat_pad = ((fat, fat),) * len(padding)
+    return np.pad(np.pad(model, ((0, 0), *padding), mode='edge'),
+                  ((0, 0), *fat_pad),
+                  mode='edge')
 
-    self.model_sampling = model_sampling
-    self.model_padding = model_padding
-    self.model_origins = model_origins
-    self.free_surface = free_surface
-    self._make(model, wavelet, d_t, src_locations, rec_locations, gpus,
-               recording_components, lame_model, subsampling)
+  def _make_sep_vector_model_space(self, shape, origins, sampling):
+    #need to reverse order for SepVector constructor
+    ns = list(shape)[::-1]
+    os = list(origins)[::-1]
+    ds = list(sampling)[::-1]
+    #add elastic parameter axis
+    ns.append(self._N_MODEL_PARAMETERS)
+    os.append(0.0)
+    ds.append(1.0)
+    return SepVector.getSepVector(ns=ns, os=os, ds=ds)
 
-  def _setup_model(self, model, lame_model=False):
-    if not lame_model:
-      model = convert_to_lame(model)
-    self.fd_param['mod_par'] = 1
-    model, x_pad, x_pad_plus, new_o_x, z_pad, z_pad_plus, new_o_z = self._pad_model(
-        model, self.model_sampling, self.model_padding, self.model_origins,
-        self.free_surface)
-    self.model = model
-    self.model_sep = SepVector.getSepVector(
-        Hypercube.hypercube(axes=[
-            Hypercube.axis(
-                n=model.shape[2], o=new_o_z, d=self.model_sampling[1]),
-            Hypercube.axis(
-                n=model.shape[1], o=new_o_x, d=self.model_sampling[0]),
-            Hypercube.axis(n=model.shape[0], o=0.0, d=1.0)
-        ]))
-    self.model_sep.getNdArray()[:] = self.model
-    self.fd_param['n_x'] = model.shape[1]
-    self.fd_param['n_z'] = model.shape[2]
-    self.fd_param['o_x'] = new_o_x
-    self.fd_param['o_z'] = new_o_z
-    self.fd_param['d_x'] = self.model_sampling[0]
-    self.fd_param['d_z'] = self.model_sampling[1]
-    self.fd_param['x_pad_minus'] = x_pad
-    self.fd_param['x_pad_plus'] = x_pad_plus
-    self.fd_param['z_pad_minus'] = z_pad
-    self.fd_param['z_pad_plus'] = z_pad_plus
-    self.fd_param['surface_condition'] = int(self.free_surface)
+  def _get_velocities(self, model):
+    return model[:2]
 
-  def _setup_lin_model(self, lin_model):
-    lin_model, x_pad, x_pad_plus, new_o_x, z_pad, z_pad_plus, new_o_z = self._pad_model(
-        lin_model, self.model_sampling, self.model_padding, self.model_origins,
-        self.free_surface)
-    self.lin_model = lin_model
-    self.lin_model_sep = SepVector.getSepVector(
-        Hypercube.hypercube(axes=[
-            Hypercube.axis(
-                n=lin_model.shape[2], o=new_o_z, d=self.model_sampling[1]),
-            Hypercube.axis(
-                n=lin_model.shape[1], o=new_o_x, d=self.model_sampling[0]),
-            Hypercube.axis(n=lin_model.shape[0], o=0.0, d=1.0)
-        ]))
-    self.lin_model_sep.getNdArray()[:] = self.lin_model
+  def _setup_operators(self, data_sep, model_sep, sep_par, src_devices,
+                       rec_devices, wavelet_nl_sep, wavelet_lin_sep):
+    # setup model sampling operator
+    nl_op = self._nl_elastic_param_conv_class(model_sep, 1)
+    jac_op = self._jac_elastic_param_conv_class(model_sep, model_sep, 1)
+    _param_convert_op = Operator.NonLinearOperator(nl_op, jac_op,
+                                                   jac_op.setBackground)
+    tmp_model = model_sep.clone()
+    _param_convert_op.nl_op.forward(0, tmp_model, model_sep)
+
+    # make and set gpu operator
+    _operator = self._setup_nl_wave_op(data_sep, model_sep, sep_par,
+                                       src_devices, rec_devices, wavelet_nl_sep)
+
+    _operator = Operator.CombNonlinearOp(_param_convert_op, _operator)
+
+    # append wavefield sampling to gpu operator
+    _operator = self._setup_wavefield_sampling_operator(
+        _operator, self.recording_components, data_sep)
+
+    return _operator
+
+  def _get_free_surface_pad_minus(self):
+    return self._FAT
+
+
+class ElasticIsotropic2D(ElasticIsotropic):
+  _N_WFLD_COMPONENTS = 5
+  _FAT = 4
+  _nl_wave_pybind_class = nonlinearPropElasticShotsGpu
+  _jac_wave_pybind_class = BornElasticShotsGpu
+  _wavefield_sampling_class = _ElasticDatComp2D
+  _nl_elastic_param_conv_class = _ElasticModelConv2D
+  _jac_elastic_param_conv_class = _ElasticModelConvJac2D
+  required_sep_params = [
+      'nx', 'dx', 'nz', 'dz', 'xPadMinus', 'xPadPlus', 'zPadMinus', 'zPadPlus',
+      'mod_par', 'dts', 'nts', 'fMax', 'sub', 'nExp', 'iGpu', 'blockSize',
+      'fat', 'surfaceCondition'
+  ]
+  _FREE_SURFACE_AVAIL = True
+  _DEFAULT_PADDING = 50
+  _DEFAULT_RECORDING_COMPONENTS = [
+      'vx',
+      'vz',
+      'sxx',
+      'szz',
+      'sxz',
+  ]
 
   def _truncate_model(self, model):
     x_pad = self.fd_param['x_pad_minus'] + self._FAT
@@ -304,66 +175,6 @@ class ElasticIsotropic2D(ElasticIsotropic):
     z_pad = self.fd_param['z_pad_minus'] + self._FAT
     z_pad_plus = self.fd_param['z_pad_plus'] + self._FAT
     return model[:, x_pad:-x_pad_plus:, z_pad:-z_pad_plus:]
-
-  def _pad_model(self,
-                 model,
-                 model_sampling,
-                 model_padding,
-                 model_origins=None,
-                 free_surface=False):
-    """Pad 2d model.
-
-    Finds the correct padding on either end of the axis so both directions are
-    divisible by _BLOCK_SIZE for optimal gpu computation.
-
-    Args:
-        model (2d np array): 2d model to be padded. Should have shape
-          (n_x,n_z).
-        d_x (float): sampling rate of x axis.
-        d_z (float): sampling rate of z axis
-        x_pad (int): desired padding for beginning and end of x axis.
-        z_pad ([type]): desired padding for beginning and end of z axis.
-
-    Returns:
-        2d np array: padded 2d model.
-    """
-    #get dimensions
-    n_x = model.shape[1]
-    d_x = model_sampling[0]
-    x_pad = model_padding[0]
-    n_z = model.shape[2]
-    d_z = model_sampling[1]
-    z_pad = model_padding[1]
-    model_origins = model_origins or (0.0, 0.0)
-
-    # Compute size of z_pad_plus
-    if free_surface:
-      n_z_total = self._FAT + z_pad + n_z
-      z_pad = self._FAT
-    else:
-      n_z_total = z_pad * 2 + n_z
-    ratio_z = n_z_total / self._BLOCK_SIZE
-    nb_blockz = ceil(ratio_z)
-    z_pad_plus = nb_blockz * self._BLOCK_SIZE - n_z - z_pad
-
-    # Compute sixe of x_pad_plus
-    n_x_total = x_pad * 2 + n_x
-    ratio_x = n_x_total / self._BLOCK_SIZE
-    nb_blockx = ceil(ratio_x)
-    x_pad_plus = nb_blockx * self._BLOCK_SIZE - n_x - x_pad
-
-    # pad
-    model = np.pad(np.pad(model,
-                          ((0, 0), (x_pad, x_pad_plus), (z_pad, z_pad_plus)),
-                          mode='edge'),
-                   ((0, 0), (self._FAT, self._FAT), (self._FAT, self._FAT)),
-                   mode='edge')
-
-    # Compute new origins
-    new_o_x = model_origins[0] - (self._FAT + x_pad) * d_x
-    new_o_z = model_origins[1] - (self._FAT + z_pad) * d_z
-
-    return model, x_pad, x_pad_plus, new_o_x, z_pad, z_pad_plus, new_o_z
 
   def _setup_src_devices(self,
                          src_locations,
@@ -397,7 +208,8 @@ class ElasticIsotropic2D(ElasticIsotropic):
                           interp_method, interp_n_filters, 0, 0, 0))
 
     self.fd_param['n_src'] = len(src_locations)
-    self.src_devices = src_devices_staggered_grids
+    # self.src_devices = src_devices_staggered_grids
+    return src_devices_staggered_grids
 
   def _setup_rec_devices(self,
                          rec_locations,
@@ -445,7 +257,8 @@ class ElasticIsotropic2D(ElasticIsotropic):
                           interp_method, interp_n_filters, 0, 0, 0))
 
     self.fd_param['n_rec'] = n_rec
-    self.rec_devices = rec_devices_staggered_grids
+    # self.rec_devices = rec_devices_staggered_grids
+    return rec_devices_staggered_grids
 
   def _setup_data(self, n_t, d_t):
     if 'n_src' not in self.fd_param:
@@ -463,7 +276,7 @@ class ElasticIsotropic2D(ElasticIsotropic):
             Hypercube.axis(n=self.fd_param['n_src'], o=0.0, d=1.0)
         ]))
 
-    self.data_sep = data_sep
+    return data_sep
 
   def _make_sep_wavelets(self, wavelet, d_t):
     n_t = wavelet.shape[-1]
@@ -506,147 +319,25 @@ class ElasticIsotropic2D(ElasticIsotropic):
 
     return center_grid_hyper, x_staggered_grid_hyper, z_staggered_grid_hyper, xz_staggered_grid_hyper
 
-  def _setup_wavefield_sampling_operator(self, recording_components, data_sep):
-    # _ElasticDatComp2D expects a string of comma seperated values
-    recording_components = ",".join(recording_components)
-    #make sampling opeartor
-    wavefield_sampling_operator = _ElasticDatComp2D(recording_components,
-                                                    data_sep)
-    self.data_sep = wavefield_sampling_operator.range.clone()
-
-    self._nl_wave_op = Operator.ChainOperator(self._nl_wave_op,
-                                              wavefield_sampling_operator)
-
 
 class ElasticIsotropic3D(ElasticIsotropic):
   _N_WFLD_COMPONENTS = 9
   _FAT = 4
-
-  def __init__(self,
-               model,
-               model_sampling,
-               wavelet,
-               d_t,
-               src_locations,
-               rec_locations,
-               gpus,
-               model_padding=(30, 30, 30),
-               model_origins=(0.0, 0.0, 0.0),
-               lame_model=False,
-               recording_components=[
-                   'vx', 'vy', 'vz', 'sxx', 'syy', 'szz', 'sxz', 'sxy', 'syz'
-               ],
-               subsampling=None,
-               free_surface=False):
-    """
-    Args:
-        model (np array): un-padded earth model that is 3D. Can be parameterized
-          parameterized by wave velocity [vp,vs,rho] or lame parameters
-          [rho,lame,mu]. If using lame parameterization, make sure the
-          lame_model argument is set to True. Must have (3, n_y, n_x, n_z) shape.
-        model_sampling (tuple): spatial sampling of provided earth model
-          (d_y, d_x, d_z).
-        wavelet (np array): source signature of wave equation. Will have shape
-          (9, n_t) describing the nine source components
-          (Fy, Fx, Fz, syy, sxx, szz, syx, syz, sxz)
-        d_t (float): temporal sampling rate (s) of recorded data NOT wave prop
-          (see subsampling).
-        src_locations (np array): coordinates of each seismic source to
-          propagate. Has (n_src, 3) where the fast axis describes the y, x, and
-          z positions, respectively.  
-        rec_locations (np array): receiver locations of each src. The number of
-          receivers must be the same for each shot, but the position of the
-          receivers can change. Can either have shape (n_rec, 3) if the receiver
-          positions are constant or (n_src,n_rec,3) if the receiver positions
-          change with each shot.
-        gpus (list): the numbered gpu devices to use for wave propagation e.g. [0,1]
-        model_padding (tuple, optional): desired amount of padding (in samples)
-          to use at propagation time to add on each axis of the earth model
-          during wave prop.
-        model_origins (tuple, optional): Origin of each axis of the earth
-          model. If None, the origins are assumed to be 0.0.
-        lame_model (bool, optional): Whether the provided model is parameterized
-          by wave velocity [vp,vs,rho] or lame parameters [rho,lame,mu].
-          Defaults to False.
-        subsampling (int, optional): rate to downsample d_t for wave prop time
-          marching. If not provided, is dynamically calculated in order for wave
-          prop to remain stable.
-        free_surface (bool, optional): whether or not to use a free surface
-          implementation.
-    """
-    super().__init__()
-    self.required_sep_params = [
-        'ny', 'dy', 'nx', 'dx', 'nz', 'dz', 'yPad', 'xPadMinus', 'xPadPlus',
-        'zPadMinus', 'zPadPlus', 'mod_par', 'dts', 'nts', 'fMax', 'sub', 'nExp',
-        'iGpu', 'blockSize', 'fat', 'freeSurface'
-    ]
-    self._nl_wave_pybind_class = nonlinearPropElasticShotsGpu_3D
-    self._jac_wave_pybind_class = BornElasticShotsGpu_3D
-
-    self.model_sampling = model_sampling
-    self.model_padding = model_padding
-    self.model_origins = model_origins
-    if free_surface == True:
-      raise NotImplementedError(
-          '3D elastic with a free surface condition has not been implemented yet!'
-      )
-    self.free_surface = free_surface
-    self._make(model, wavelet, d_t, src_locations, rec_locations, gpus,
-               recording_components, lame_model, subsampling)
-
-  def _setup_model(self, model, lame_model=False):
-    if not lame_model:
-      model = convert_to_lame(model)
-
-    self.fd_param['mod_par'] = 1
-    model, y_pad, y_pad_plus, new_o_y, x_pad, x_pad_plus, new_o_x, z_pad, z_pad_plus, new_o_z = self._pad_model(
-        model, self.model_sampling, self.model_padding, self.model_origins,
-        self.free_surface)
-
-    self.model = model
-    self.model_sep = SepVector.getSepVector(
-        Hypercube.hypercube(axes=[
-            Hypercube.axis(
-                n=model.shape[3], o=new_o_z, d=self.model_sampling[2]),
-            Hypercube.axis(
-                n=model.shape[2], o=new_o_x, d=self.model_sampling[1]),
-            Hypercube.axis(
-                n=model.shape[1], o=new_o_y, d=self.model_sampling[0]),
-            Hypercube.axis(n=model.shape[0], o=0.0, d=1.0)
-        ]))
-    self.model_sep.getNdArray()[:] = self.model
-    self.fd_param['n_y'] = model.shape[1]
-    self.fd_param['n_x'] = model.shape[2]
-    self.fd_param['n_z'] = model.shape[3]
-    self.fd_param['o_y'] = new_o_y
-    self.fd_param['o_x'] = new_o_x
-    self.fd_param['o_z'] = new_o_z
-    self.fd_param['d_y'] = self.model_sampling[0]
-    self.fd_param['d_x'] = self.model_sampling[1]
-    self.fd_param['d_z'] = self.model_sampling[2]
-    self.fd_param['y_pad'] = y_pad
-    self.fd_param['x_pad_minus'] = x_pad
-    self.fd_param['x_pad_plus'] = x_pad_plus
-    self.fd_param['z_pad_minus'] = z_pad
-    self.fd_param['z_pad_plus'] = z_pad_plus
-    self.fd_param['free_surface'] = int(self.free_surface)
-
-  def _setup_lin_model(self, lin_model):
-    lin_model, y_pad, y_pad_plus, new_o_y, x_pad, x_pad_plus, new_o_x, z_pad, z_pad_plus, new_o_z = self._pad_model(
-        lin_model, self.model_sampling, self.model_padding, self.model_origins,
-        self.free_surface)
-    self.lin_model = lin_model
-    self.lin_model_sep = SepVector.getSepVector(
-        Hypercube.hypercube(axes=[
-            Hypercube.axis(
-                n=lin_model.shape[3], o=new_o_z, d=self.model_sampling[2]),
-            Hypercube.axis(
-                n=lin_model.shape[2], o=new_o_x, d=self.model_sampling[1]),
-            Hypercube.axis(
-                n=lin_model.shape[1], o=new_o_y, d=self.model_sampling[0]),
-            Hypercube.axis(n=lin_model.shape[0], o=0.0, d=1.0)
-        ]))
-    self.lin_model_sep.getNdArray()[:] = self.lin_model
+  required_sep_params = [
+      'ny', 'dy', 'nx', 'dx', 'nz', 'dz', 'yPad', 'xPadMinus', 'xPadPlus',
+      'zPadMinus', 'zPadPlus', 'mod_par', 'dts', 'nts', 'fMax', 'sub', 'nExp',
+      'iGpu', 'blockSize', 'fat', 'freeSurface'
+  ]
+  _nl_wave_pybind_class = nonlinearPropElasticShotsGpu_3D
+  _jac_wave_pybind_class = BornElasticShotsGpu_3D
+  _wavefield_sampling_class = _ElasticDatComp_3D
+  _nl_elastic_param_conv_class = _ElasticModelConv3D
+  _jac_elastic_param_conv_class = _ElasticModelConvJac3D
+  _FREE_SURFACE_AVAIL = False
+  _DEFAULT_PADDING = 30
+  _DEFAULT_RECORDING_COMPONENTS = [
+      'vx', 'vy', 'vz', 'sxx', 'syy', 'szz', 'sxz', 'sxy', 'syz'
+  ]
 
   def _truncate_model(self, model):
     y_pad = self.fd_param['y_pad'] + self._FAT
@@ -655,74 +346,6 @@ class ElasticIsotropic3D(ElasticIsotropic):
     z_pad = self.fd_param['z_pad_minus'] + self._FAT
     z_pad_plus = self.fd_param['z_pad_plus'] + self._FAT
     return model[:, y_pad:-y_pad:, x_pad:-x_pad_plus:, z_pad:-z_pad_plus:]
-
-  def _pad_model(self,
-                 model,
-                 model_sampling,
-                 model_padding,
-                 model_origins=None,
-                 free_surface=False):
-    """Pad 3d model.
-
-    Finds the correct padding on either end of the axis so both directions are
-    divisible by _BLOCK_SIZE for optimal gpu computation.
-
-    Args:
-        model (3d np array): 3d model to be padded. Should have shape
-          (n_x,n_z).
-        d_x (float): sampling rate of x axis.
-        d_z (float): sampling rate of z axis
-        x_pad (int): desired padding for beginning and end of x axis.
-        z_pad ([type]): desired padding for beginning and end of z axis.
-
-    Returns:
-        3d np array: padded 3d model.
-    """
-    #get dimensions
-    n_y = model.shape[1]
-    d_y = model_sampling[0]
-    y_pad = model_padding[0]
-    n_x = model.shape[2]
-    d_x = model_sampling[1]
-    x_pad = model_padding[1]
-    n_z = model.shape[3]
-    d_z = model_sampling[2]
-    z_pad = model_padding[2]
-    model_origins = model_origins or (0.0, 0.0, 0.0)
-
-    # Compute size of z_pad_plus
-    if free_surface:
-      n_z_total = self._FAT + z_pad + n_z
-      z_pad = self._FAT
-    else:
-      n_z_total = z_pad * 2 + n_z
-    ratio_z = n_z_total / self._BLOCK_SIZE
-    nb_blockz = ceil(ratio_z)
-    z_pad_plus = nb_blockz * self._BLOCK_SIZE - n_z - z_pad
-
-    # Compute sixe of x_pad_plus
-    n_x_total = x_pad * 2 + n_x
-    ratio_x = n_x_total / self._BLOCK_SIZE
-    nb_blockx = ceil(ratio_x)
-    x_pad_plus = nb_blockx * self._BLOCK_SIZE - n_x - x_pad
-
-    # compute y axis padding
-    y_pad_plus = y_pad
-
-    # pad
-    model = np.pad(np.pad(model, ((0, 0), (y_pad, y_pad_plus),
-                                  (x_pad, x_pad_plus), (z_pad, z_pad_plus)),
-                          mode='edge'),
-                   ((0, 0), (self._FAT, self._FAT), (self._FAT, self._FAT),
-                    (self._FAT, self._FAT)),
-                   mode='edge')
-
-    # Compute new origins
-    new_o_y = model_origins[0] - (self._FAT + y_pad) * d_y
-    new_o_x = model_origins[1] - (self._FAT + x_pad) * d_x
-    new_o_z = model_origins[2] - (self._FAT + z_pad) * d_z
-
-    return model, y_pad, y_pad_plus, new_o_y, x_pad, x_pad_plus, new_o_x, z_pad, z_pad_plus, new_o_z
 
   def _setup_src_devices(self, src_locations, n_t, interp_method='linear'):
     """
@@ -765,7 +388,8 @@ class ElasticIsotropic3D(ElasticIsotropic):
                           1))
 
     self.fd_param['n_src'] = len(src_locations)
-    self.src_devices = src_devices_staggered_grids
+    # self.src_devices = src_devices_staggered_grids
+    return src_devices_staggered_grids
 
   def _setup_rec_devices(self,
                          rec_locations,
@@ -828,7 +452,8 @@ class ElasticIsotropic3D(ElasticIsotropic):
                           1))
 
     self.fd_param['n_rec'] = n_rec
-    self.rec_devices = rec_devices_staggered_grids
+    # self.rec_devices = rec_devices_staggered_grids
+    return rec_devices_staggered_grids
 
   def _setup_data(self, n_t, d_t):
     if 'n_src' not in self.fd_param:
@@ -846,7 +471,7 @@ class ElasticIsotropic3D(ElasticIsotropic):
             Hypercube.axis(n=self.fd_param['n_src'], o=0.0, d=1.0)
         ]))
 
-    self.data_sep = data_sep
+    return data_sep
 
   def _make_sep_wavelets(self, wavelet, d_t):
     n_t = wavelet.shape[-1]
@@ -899,17 +524,6 @@ class ElasticIsotropic3D(ElasticIsotropic):
         axes=[z_axis_staggered, x_axis, y_axis_staggered, param_axis])
 
     return center_grid_hyper, x_staggered_grid_hyper, y_staggered_grid_hyper, z_staggered_grid_hyper, xz_staggered_grid_hyper, xy_staggered_grid_hyper, yz_staggered_grid_hyper
-
-  def _setup_wavefield_sampling_operator(self, recording_components, data_sep):
-    # _ElasticDatComp_3D expects a string of comma seperated values
-    recording_components = ",".join(recording_components)
-    #make sampling opeartor
-    wavefield_sampling_operator = _ElasticDatComp_3D(recording_components,
-                                                     data_sep)
-    self.data_sep = wavefield_sampling_operator.range.clone()
-
-    self._nl_wave_op = Operator.ChainOperator(self._nl_wave_op,
-                                              wavefield_sampling_operator)
 
 
 def convert_to_lame(model):

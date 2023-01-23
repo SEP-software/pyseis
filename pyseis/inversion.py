@@ -89,13 +89,13 @@ class Fwi():
     self.wave_eq_solver = wave_eq_solver
 
     # create the fwi operator which includes the nonlinear and linearized wave eq
-    self.fwi_op = self._make_fwi_op(self.wave_eq_solver)
+    # self.fwi_op = self._make_fwi_op(self.wave_eq_solver)
 
     # create inversion problem
     self.wave_eq_solver._set_data(obs_data)
-    self.wave_eq_solver._setup_model(starting_model)
+    self.wave_eq_solver._set_model(starting_model)
     self.problem = self._make_problem(self.wave_eq_solver,
-                                      self.fwi_op,
+                                      self.wave_eq_solver._operator,
                                       model_bounds=model_bounds)
 
     # create solver

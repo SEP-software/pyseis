@@ -5,6 +5,8 @@ from pyseis.wave_equations import elastic_isotropic, wave_equation
 from pyseis.wavelets.elastic import Elastic3D
 import SepVector
 import pySepVector
+import time
+import sys
 
 N_Y = 51
 D_Y = 9.0
@@ -37,6 +39,7 @@ D_Y_REC = 1.0
 Z_REC = 15.0
 
 I_GPUS = [0, 1, 2, 3]
+# I_GPUS = [3]
 
 #expected values
 N_WFLD_COMPONENTS = 9
@@ -112,9 +115,13 @@ def mock_make(self,
               src_locations,
               rec_locations,
               gpus,
+              model_padding,
+              model_origins,
+              model_sampling,
               recording_components,
               lame_model=False,
-              subsampling=None):
+              subsampling=None,
+              free_surface=False):
   return None
 
 
@@ -122,8 +129,29 @@ def mock_make(self,
 ##### elastic_isotropic.ElasticIsotropic3D tests ################
 ###############################################
 @pytest.mark.gpu
-def test_fwd_vel_components(trapezoid_wavelet, fixed_rec_locations,
-                            src_locations, vp_vs_rho_model_3d):
+def test_fwd(trapezoid_wavelet, fixed_rec_locations, src_locations,
+             vp_vs_rho_model_3d):
+  # Arrange
+  elastic_3d = elastic_isotropic.ElasticIsotropic3D(
+      model=vp_vs_rho_model_3d,
+      model_sampling=(D_Y, D_X, D_Z),
+      model_padding=(N_Y_PAD, N_X_PAD, N_Z_PAD),
+      wavelet=trapezoid_wavelet,
+      d_t=D_T,
+      src_locations=src_locations,
+      rec_locations=fixed_rec_locations,
+      gpus=I_GPUS)
+
+  # Act
+  data = elastic_3d.forward(vp_vs_rho_model_3d)
+
+  # Assert
+  assert data.shape == (N_SRCS, N_WFLD_COMPONENTS, N_REC * N_REC, N_T)
+
+
+@pytest.mark.gpu
+def test_fwd_vel_recording_components(trapezoid_wavelet, fixed_rec_locations,
+                                      src_locations, vp_vs_rho_model_3d):
   # Arrange
   recording_components = ['vy', 'vx', 'vz']
   elastic_3d = elastic_isotropic.ElasticIsotropic3D(
@@ -145,9 +173,11 @@ def test_fwd_vel_components(trapezoid_wavelet, fixed_rec_locations,
 
 
 @pytest.mark.gpu
-def test_fwd(trapezoid_wavelet, fixed_rec_locations, src_locations,
-             vp_vs_rho_model_3d):
+def test_fwd_pressure_recording_components(trapezoid_wavelet,
+                                           fixed_rec_locations, src_locations,
+                                           vp_vs_rho_model_3d):
   # Arrange
+  recording_components = ['p']
   elastic_3d = elastic_isotropic.ElasticIsotropic3D(
       model=vp_vs_rho_model_3d,
       model_sampling=(D_Y, D_X, D_Z),
@@ -156,13 +186,14 @@ def test_fwd(trapezoid_wavelet, fixed_rec_locations, src_locations,
       d_t=D_T,
       src_locations=src_locations,
       rec_locations=fixed_rec_locations,
-      gpus=I_GPUS)
+      gpus=I_GPUS,
+      recording_components=recording_components)
 
   # Act
   data = elastic_3d.forward(vp_vs_rho_model_3d)
 
   # Assert
-  assert data.shape == (N_SRCS, N_WFLD_COMPONENTS, N_REC * N_REC, N_T)
+  assert data.shape == (N_SRCS, len(recording_components), N_REC * N_REC, N_T)
 
 
 @pytest.mark.gpu
@@ -204,12 +235,13 @@ def test_setup_wavelet(trapezoid_wavelet):
                                                       None, None, None, None,
                                                       None)
     # Act
-    elastic_3d._setup_wavelet(trapezoid_wavelet, D_T)
+    wavelet_nl_sep, wavelet_lin_sep = elastic_3d._setup_wavelet(
+        trapezoid_wavelet, D_T)
 
     # assert
-    assert isinstance(elastic_3d.wavelet_nl_sep, SepVector.floatVector)
-    assert isinstance(elastic_3d.wavelet_lin_sep, list)
-    assert isinstance(elastic_3d.wavelet_lin_sep[0], pySepVector.float3DReg)
+    assert isinstance(wavelet_nl_sep, SepVector.floatVector)
+    assert isinstance(wavelet_lin_sep, list)
+    assert isinstance(wavelet_lin_sep[0], pySepVector.float3DReg)
 
 
 def test_setup_data(variable_rec_locations, src_locations, vp_vs_rho_model_3d):
@@ -218,16 +250,20 @@ def test_setup_data(variable_rec_locations, src_locations, vp_vs_rho_model_3d):
     elastic_3d = elastic_isotropic.ElasticIsotropic3D(None, (D_Y, D_X, D_Z),
                                                       None, None, None, None,
                                                       None)
-    elastic_3d._setup_model(vp_vs_rho_model_3d)
+
+    elastic_3d.model_sep, elastic_3d.model_padding = elastic_3d._setup_model(
+        vp_vs_rho_model_3d,
+        model_padding=(N_Y_PAD, N_X_PAD, N_Z_PAD),
+        model_sampling=(D_Y, D_X, D_Z))
     elastic_3d._setup_src_devices(src_locations, N_T)
     elastic_3d._setup_rec_devices(variable_rec_locations, N_T)
 
     # Act
-    elastic_3d._setup_data(N_T, D_T)
+    data_sep = elastic_3d._setup_data(N_T, D_T)
 
     # Assert
-    assert elastic_3d.data_sep.getNdArray().shape == (N_SRCS, N_WFLD_COMPONENTS,
-                                                      N_REC * N_REC, N_T)
+    assert data_sep.getNdArray().shape == (N_SRCS, N_WFLD_COMPONENTS,
+                                           N_REC * N_REC, N_T)
 
 
 def test_setup_data_fails_if_no_src_or_rec(variable_rec_locations,
@@ -237,14 +273,16 @@ def test_setup_data_fails_if_no_src_or_rec(variable_rec_locations,
     elastic_3d = elastic_isotropic.ElasticIsotropic3D(None, (D_Y, D_X, D_Z),
                                                       None, None, None, None,
                                                       None)
-    elastic_3d._setup_model(vp_vs_rho_model_3d)
+    elastic_3d.model_sep, elastic_3d.model_padding = elastic_3d._setup_model(
+        vp_vs_rho_model_3d,
+        model_padding=(N_Y_PAD, N_X_PAD, N_Z_PAD),
+        model_sampling=(D_Y, D_X, D_Z))
 
     # Act and Assert
     with pytest.raises(RuntimeError):
       elastic_3d._setup_data(N_T, D_T)
 
     elastic_3d._setup_src_devices(src_locations, N_T)
-
     # Act and Assert
     with pytest.raises(RuntimeError):
       elastic_3d._setup_data(N_T, D_T)
@@ -258,14 +296,17 @@ def test_setup_rec_devices_variable_receivers(variable_rec_locations,
     elastic_3d = elastic_isotropic.ElasticIsotropic3D(None, (D_Y, D_X, D_Z),
                                                       None, None, None, None,
                                                       None)
-    elastic_3d._setup_model(vp_vs_rho_model_3d)
+    elastic_3d.model_sep, elastic_3d.model_padding = elastic_3d._setup_model(
+        vp_vs_rho_model_3d,
+        model_padding=(N_Y_PAD, N_X_PAD, N_Z_PAD),
+        model_sampling=(D_Y, D_X, D_Z))
     elastic_3d._setup_src_devices(src_locations, N_T)
     # Act
-    elastic_3d._setup_rec_devices(variable_rec_locations, N_T)
+    rec_devices = elastic_3d._setup_rec_devices(variable_rec_locations, N_T)
 
     # Assert
-    assert len(elastic_3d.rec_devices) == 7
-    for rec_device_grid in elastic_3d.rec_devices:
+    assert len(rec_devices) == 7
+    for rec_device_grid in rec_devices:
       assert len(rec_device_grid) == N_SRCS
 
 
@@ -276,7 +317,10 @@ def test_setup_rec_devices_variable_receivers_nshot_mismatch(
     elastic_3d = elastic_isotropic.ElasticIsotropic3D(None, (D_Y, D_X, D_Z),
                                                       None, None, None, None,
                                                       None)
-    elastic_3d._setup_model(vp_vs_rho_model_3d)
+    elastic_3d.model_sep, elastic_3d.model_padding = elastic_3d._setup_model(
+        vp_vs_rho_model_3d,
+        model_padding=(N_Y_PAD, N_X_PAD, N_Z_PAD),
+        model_sampling=(D_Y, D_X, D_Z))
     elastic_3d._setup_src_devices(src_locations, N_T)
 
     # Act and Assert
@@ -291,15 +335,18 @@ def test_setup_rec_devices_fixed_receivers(fixed_rec_locations, src_locations,
     elastic_3d = elastic_isotropic.ElasticIsotropic3D(None, (D_Y, D_X, D_Z),
                                                       None, None, None, None,
                                                       None)
-    elastic_3d._setup_model(vp_vs_rho_model_3d)
+    elastic_3d.model_sep, elastic_3d.model_padding = elastic_3d._setup_model(
+        vp_vs_rho_model_3d,
+        model_padding=(N_Y_PAD, N_X_PAD, N_Z_PAD),
+        model_sampling=(D_Y, D_X, D_Z))
     elastic_3d._setup_src_devices(src_locations, N_T)
 
     # Act
-    elastic_3d._setup_rec_devices(fixed_rec_locations, N_T)
+    rec_devices = elastic_3d._setup_rec_devices(fixed_rec_locations, N_T)
 
     # Assert
-    assert len(elastic_3d.rec_devices) == 7
-    for rec_device_grid in elastic_3d.rec_devices:
+    assert len(rec_devices) == 7
+    for rec_device_grid in rec_devices:
       assert len(rec_device_grid) == 1
     assert elastic_3d.fd_param['n_src'] == N_SRCS
     assert elastic_3d.fd_param['n_rec'] == N_REC * N_REC
@@ -312,7 +359,10 @@ def test_setup_rec_devices_fails_if_no_src_locations(fixed_rec_locations,
     elastic_3d = elastic_isotropic.ElasticIsotropic3D(None, (D_Y, D_X, D_Z),
                                                       None, None, None, None,
                                                       None)
-    elastic_3d._setup_model(vp_vs_rho_model_3d)
+    elastic_3d.model_sep, elastic_3d.model_padding = elastic_3d._setup_model(
+        vp_vs_rho_model_3d,
+        model_padding=(N_Y_PAD, N_X_PAD, N_Z_PAD),
+        model_sampling=(D_Y, D_X, D_Z))
 
     # Act and Assert
     with pytest.raises(RuntimeError):
@@ -337,14 +387,17 @@ def test_setup_src_devices(src_locations, vp_vs_rho_model_3d):
     elastic_3d = elastic_isotropic.ElasticIsotropic3D(None, (D_Y, D_X, D_Z),
                                                       None, None, None, None,
                                                       None)
-    elastic_3d._setup_model(vp_vs_rho_model_3d)
+    elastic_3d.model_sep, elastic_3d.model_padding = elastic_3d._setup_model(
+        vp_vs_rho_model_3d,
+        model_padding=(N_Y_PAD, N_X_PAD, N_Z_PAD),
+        model_sampling=(D_Y, D_X, D_Z))
 
     # Act
-    elastic_3d._setup_src_devices(src_locations, N_T)
+    src_devices = elastic_3d._setup_src_devices(src_locations, N_T)
 
     # Assert
-    assert len(elastic_3d.src_devices) == 7
-    for src_device_grid in elastic_3d.src_devices:
+    assert len(src_devices) == 7
+    for src_device_grid in src_devices:
       assert len(src_device_grid) == N_SRCS
 
 
@@ -357,49 +410,6 @@ def test_setup_src_devices_fails_if_no_model(src_locations):
     # Act and Assert
     with pytest.raises(RuntimeError):
       elastic_3d._setup_src_devices(src_locations, N_T)
-
-
-def test_setup_model_default_padding(vp_vs_rho_model_3d):
-  # Arrange
-  with patch.object(elastic_isotropic.ElasticIsotropic3D, "_make", mock_make):
-    elastic_3d = elastic_isotropic.ElasticIsotropic3D(None, (D_Y, D_X, D_Z),
-                                                      None, None, None, None,
-                                                      None)
-    # Act
-    elastic_3d._setup_model(vp_vs_rho_model_3d)
-
-    # Assert
-    default_padding = 30
-    assert elastic_3d.fd_param[
-        'n_y'] == 2 * default_padding + 2 * elastic_3d._FAT + N_Y
-    assert (elastic_3d.fd_param['n_x'] -
-            2 * elastic_3d._FAT) % elastic_3d._BLOCK_SIZE == 0
-    assert (elastic_3d.fd_param['n_z'] -
-            2 * elastic_3d._FAT) % elastic_3d._BLOCK_SIZE == 0
-    assert elastic_3d.fd_param['d_y'] == D_Y
-    assert elastic_3d.fd_param['d_x'] == D_X
-    assert elastic_3d.fd_param['d_z'] == D_Z
-    assert elastic_3d.fd_param['y_pad'] == default_padding
-    assert elastic_3d.fd_param['x_pad_minus'] == default_padding
-    assert elastic_3d.fd_param['x_pad_plus'] == elastic_3d.fd_param['n_x'] - (
-        N_X + default_padding + 2 * elastic_3d._FAT)
-    assert elastic_3d.fd_param['z_pad_minus'] == default_padding
-    assert elastic_3d.fd_param['z_pad_plus'] == elastic_3d.fd_param['n_z'] - (
-        N_Z + default_padding + 2 * elastic_3d._FAT)
-
-    #check model gets set
-    start_y = elastic_3d._FAT + default_padding
-    end_y = start_y + N_Y
-    start_x = elastic_3d._FAT + default_padding
-    end_x = start_x + N_X
-    start_z = elastic_3d._FAT + default_padding
-    end_z = start_z + N_Z
-
-    # check that model was converted to lame paramters
-    lame_model_3d = elastic_isotropic.convert_to_lame(vp_vs_rho_model_3d)
-    assert np.allclose(
-        elastic_3d.model_sep.getNdArray()[:, start_y:end_y, start_x:end_x,
-                                          start_z:end_z], lame_model_3d)
 
 
 def test_setup_model(vp_vs_rho_model_3d):
@@ -415,7 +425,10 @@ def test_setup_model(vp_vs_rho_model_3d):
                                                                      N_X_PAD,
                                                                      N_Z_PAD))
     # Act
-    elastic_3d._setup_model(vp_vs_rho_model_3d)
+    elastic_3d.model_sep, elastic_3d.model_padding = elastic_3d._setup_model(
+        vp_vs_rho_model_3d,
+        model_padding=(N_Y_PAD, N_X_PAD, N_Z_PAD),
+        model_sampling=(D_Y, D_X, D_Z))
 
     # Assert
     assert elastic_3d.fd_param['n_y'] == 2 * N_Y_PAD + 2 * elastic_3d._FAT + N_Y
@@ -443,32 +456,36 @@ def test_setup_model(vp_vs_rho_model_3d):
     end_z = start_z + N_Z
 
     # check that model was converted to lame paramters
-    lame_model_3d = elastic_isotropic.convert_to_lame(vp_vs_rho_model_3d)
+    # lame_model_3d = elastic_isotropic.convert_to_lame(vp_vs_rho_model_3d)
     assert np.allclose(
         elastic_3d.model_sep.getNdArray()[:, start_y:end_y, start_x:end_x,
-                                          start_z:end_z], lame_model_3d)
+                                          start_z:end_z], vp_vs_rho_model_3d)
 
 
 def test_pad_model(vp_vs_rho_model_3d):
   # Arrange
   with patch.object(elastic_isotropic.ElasticIsotropic3D, "_make", mock_make):
-    elastic_3d = elastic_isotropic.ElasticIsotropic3D(None, None, None, None,
+    elastic_3d = elastic_isotropic.ElasticIsotropic3D(None, (D_Y, D_X, D_Z),
                                                       None, None, None, None,
-                                                      None)
+                                                      None, None, None)
 
+    padding, new_shape, new_origins = elastic_3d._calc_pad_params(
+        (N_Y, N_X, N_Z), (N_Y_PAD, N_X_PAD, N_Z_PAD), (D_Y, D_X, D_Z),
+        elastic_3d._FAT)
     # Act
-    model, y_pad, y_pad_plus, new_o_y, x_pad, x_pad_plus, new_o_x, z_pad, z_pad_plus, new_o_z = elastic_3d._pad_model(
-        vp_vs_rho_model_3d, (D_Y, D_X, D_Z), (N_Y_PAD, N_X_PAD, N_Z_PAD))
+    model = elastic_3d._pad_model(vp_vs_rho_model_3d, padding, elastic_3d._FAT)
 
     # Assert
     assert (model.shape[2] - 2 * elastic_3d._FAT) % elastic_3d._BLOCK_SIZE == 0
     assert (model.shape[3] - 2 * elastic_3d._FAT) % elastic_3d._BLOCK_SIZE == 0
-    assert y_pad == N_Y_PAD
-    assert y_pad_plus == N_Y_PAD
-    assert x_pad == N_X_PAD
-    assert x_pad_plus == model.shape[2] - (N_X + N_X_PAD + 2 * elastic_3d._FAT)
-    assert z_pad == N_Z_PAD
-    assert z_pad_plus == model.shape[3] - (N_Z + N_Z_PAD + 2 * elastic_3d._FAT)
+    assert padding[0][0] == N_Y_PAD
+    assert padding[0][1] == N_Y_PAD
+    assert padding[1][0] == N_X_PAD
+    assert padding[1][1] == model.shape[2] - (N_X + N_X_PAD +
+                                              2 * elastic_3d._FAT)
+    assert padding[2][0] == N_Z_PAD
+    assert padding[2][1] == model.shape[3] - (N_Z + N_Z_PAD +
+                                              2 * elastic_3d._FAT)
 
     #check model gets set
     start_y = elastic_3d._FAT + N_Y_PAD
@@ -485,9 +502,10 @@ def test_pad_model(vp_vs_rho_model_3d):
 #### ElasticIsotropic3D Born tests ###########
 ###############################################
 @pytest.mark.gpu
-def test_init_linear(trapezoid_wavelet, fixed_rec_locations, src_locations,
-                     vp_vs_rho_model_3d):
-  # Arrange
+def test_init_jacobian(trapezoid_wavelet, fixed_rec_locations, src_locations,
+                       vp_vs_rho_model_3d):
+
+  # Arrange and act
   elastic_3d = elastic_isotropic.ElasticIsotropic3D(
       model=vp_vs_rho_model_3d,
       model_sampling=(D_Y, D_X, D_Z),
@@ -498,19 +516,15 @@ def test_init_linear(trapezoid_wavelet, fixed_rec_locations, src_locations,
       rec_locations=fixed_rec_locations,
       gpus=I_GPUS)
 
-  #assert
-  assert elastic_3d._jac_wave_op == None
-
-  # act
-  elastic_3d._setup_jac_wave_op()
-
   # assert
-  assert isinstance(elastic_3d._jac_wave_op, wave_equation._JacobianWaveCppOp)
+  assert isinstance(elastic_3d._operator.lin_op.args[1].args[0],
+                    wave_equation._JacobianWaveCppOp)
 
 
 @pytest.mark.gpu
 def test_jacobian(trapezoid_wavelet, fixed_rec_locations, src_locations,
                   vp_vs_rho_model_3d):
+
   # Arrange
   vp_vs_rho_model_3d[..., N_Z // 2:] *= 1.5
   elastic_3d = elastic_isotropic.ElasticIsotropic3D(
@@ -531,6 +545,70 @@ def test_jacobian(trapezoid_wavelet, fixed_rec_locations, src_locations,
 
   # Assert
   assert lin_data.shape == (N_SRCS, N_WFLD_COMPONENTS, N_REC * N_REC, N_T)
+  assert not np.all((lin_data == 0))
+  assert not np.any(np.isnan(lin_data))
+
+
+@pytest.mark.gpu
+def test_jacobian_vel_recording_components(trapezoid_wavelet,
+                                           fixed_rec_locations, src_locations,
+                                           vp_vs_rho_model_3d):
+
+  # Arrange
+  recording_components = ['vy', 'vx', 'vz']
+  vp_vs_rho_model_3d[..., N_Z // 2:] *= 1.5
+  elastic_3d = elastic_isotropic.ElasticIsotropic3D(
+      model=vp_vs_rho_model_3d,
+      model_sampling=(D_Y, D_X, D_Z),
+      model_padding=(N_Y_PAD, N_X_PAD, N_Z_PAD),
+      wavelet=trapezoid_wavelet,
+      d_t=D_T,
+      src_locations=src_locations,
+      rec_locations=fixed_rec_locations,
+      gpus=I_GPUS,
+      recording_components=recording_components)
+
+  #reflectivity model
+  lin_model = np.gradient(vp_vs_rho_model_3d, axis=-1)
+
+  # act
+  lin_data = elastic_3d.jacobian(lin_model)
+
+  # Assert
+  assert lin_data.shape == (N_SRCS, len(recording_components), N_REC * N_REC,
+                            N_T)
+  assert not np.all((lin_data == 0))
+  assert not np.any(np.isnan(lin_data))
+
+
+@pytest.mark.gpu
+def test_jacobian_pressure_recording_components(trapezoid_wavelet,
+                                                fixed_rec_locations,
+                                                src_locations,
+                                                vp_vs_rho_model_3d):
+  # Arrange
+  recording_components = ['p']
+  vp_vs_rho_model_3d[..., N_Z // 2:] *= 1.5
+  elastic_3d = elastic_isotropic.ElasticIsotropic3D(
+      model=vp_vs_rho_model_3d,
+      model_sampling=(D_Y, D_X, D_Z),
+      model_padding=(N_Y_PAD, N_X_PAD, N_Z_PAD),
+      wavelet=trapezoid_wavelet,
+      d_t=D_T,
+      src_locations=src_locations,
+      rec_locations=fixed_rec_locations,
+      gpus=I_GPUS,
+      recording_components=recording_components)
+
+  #reflectivity model
+  lin_model = np.gradient(vp_vs_rho_model_3d, axis=-1)
+
+  # act
+  lin_data = elastic_3d.jacobian(lin_model)
+
+  # Assert
+  assert lin_data.shape == (N_SRCS, len(recording_components), N_REC * N_REC,
+                            N_T)
   assert not np.all((lin_data == 0))
   assert not np.any(np.isnan(lin_data))
 
@@ -577,6 +655,50 @@ def test_jacobian_dot_product(trapezoid_wavelet, fixed_rec_locations,
       src_locations=src_locations,
       rec_locations=fixed_rec_locations,
       gpus=I_GPUS)
+
+  #assert
+  elastic_3d.dot_product_test(True)
+
+
+@pytest.mark.gpu
+def test_jacobian_dot_product_vel_recording_components(trapezoid_wavelet,
+                                                       fixed_rec_locations,
+                                                       src_locations,
+                                                       vp_vs_rho_model_3d):
+  # Arrange
+  recording_components = ['vy', 'vx', 'vz']
+  vp_vs_rho_model_3d[..., N_Z // 2:] *= 1.5
+  elastic_3d = elastic_isotropic.ElasticIsotropic3D(
+      model=vp_vs_rho_model_3d,
+      model_sampling=(D_Y, D_X, D_Z),
+      model_padding=(N_Y_PAD, N_X_PAD, N_Z_PAD),
+      wavelet=trapezoid_wavelet,
+      d_t=D_T,
+      src_locations=src_locations,
+      rec_locations=fixed_rec_locations,
+      gpus=I_GPUS,
+      recording_components=recording_components)
+
+  #assert
+  elastic_3d.dot_product_test(True)
+
+
+@pytest.mark.gpu
+def test_jacobian_dot_product_pressure_recording_components(
+    trapezoid_wavelet, fixed_rec_locations, src_locations, vp_vs_rho_model_3d):
+  # Arrange
+  recording_components = ['p']
+  vp_vs_rho_model_3d[..., N_Z // 2:] *= 1.5
+  elastic_3d = elastic_isotropic.ElasticIsotropic3D(
+      model=vp_vs_rho_model_3d,
+      model_sampling=(D_Y, D_X, D_Z),
+      model_padding=(N_Y_PAD, N_X_PAD, N_Z_PAD),
+      wavelet=trapezoid_wavelet,
+      d_t=D_T,
+      src_locations=src_locations,
+      rec_locations=fixed_rec_locations,
+      gpus=I_GPUS,
+      recording_components=recording_components)
 
   #assert
   elastic_3d.dot_product_test(True)
