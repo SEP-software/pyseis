@@ -13,6 +13,6 @@ sudo docker run -p 7001:7001 \
   -e LOCAL_USER_ID=`id -u $USER` \
   -v $(pwd):$(pwd) \
   -w $(pwd) \
-  sfarris1994/pyseis:20230105-232137UTC-a12afda jupyter-lab --no-browser --port=7001 --ip 0.0.0.0
+  sfarris1994/pyseis:20230125-181638UTC-4b0ff25 jupyter-lab --no-browser --port=7001 --ip 0.0.0.0
 ```
 3. Navigate to the jupyterlab at `http://127.0.0.1:7001` in your browser.
