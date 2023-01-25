@@ -303,7 +303,7 @@ class WaveEquation(abc.ABC):
       raise ValueError(
           f'Shape of model_origins has {len(model_origins)} dimension but model has {len(model_shape)}'
       )
-    else:
+    elif not model_origins:
       model_origins = (0.0,) * len(model_shape)
 
     padding = []
@@ -325,8 +325,9 @@ class WaveEquation(abc.ABC):
 
     # new origins
     new_origins = [
-        old_origin - (fat + padding[0]) * sampling for old_origin, padding,
-        sampling in zip(model_origins, padding, model_sampling)
+        old_origin - (fat + pad_minus) * sampling for old_origin, (
+            pad_minus,
+            _), sampling in zip(model_origins, padding, model_sampling)
     ]
 
     # new shape
