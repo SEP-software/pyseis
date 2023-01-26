@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 
 def plot_model(model,
                sampling=(5, 5),
+               origins=(0.0,0.0),
                pclip=99,
                figsize=(15, 5),
                cmap='jet',
@@ -17,15 +18,15 @@ def plot_model(model,
                vlims=None):
   fig, ax = plt.subplots(figsize=figsize)
 
-  x_axis = sampling[0] * np.arange(model.shape[0])
-  z_axis = sampling[1] * np.arange(model.shape[1])
+  x_axis = origins[0] + sampling[0] * np.arange(model.shape[0])
+  z_axis = origins[1] + sampling[1] * np.arange(model.shape[1])
 
   clip = np.percentile(model, pclip)
   vmin=0
   vmax=clip
   if vlims:
     vmin = vlims[0]
-    vax = vlims[1]
+    vmax = vlims[1]
   pc = plt.pcolormesh(x_axis,
                       z_axis,
                       model.T,
