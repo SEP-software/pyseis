@@ -7,15 +7,15 @@ and the elastic, isotropic wave equation, both two and three dimensions. In
 other words, the Fwi class can be used to solve acoustic or elastic FWI in 2D
 and 3D. This module also includes several sub-modules such as pyProblem,
 pyStepper, pyStopper, pyOperator, pyNonLinearSolver, and genericIO which are
-taken from Ettore Biondi's pysolver module. The Fwi class allows to inversions
-to be run with various solvers and steppers.
+taken from Ettore Biondi's python-solver module. The Fwi class allows to
+inversions to be run with various solvers and steppers.
 """
 from datetime import datetime
 import pathlib
 import os
 import sys_util
 import numpy as np
-from typing import Callable, List
+from typing import Callable, List, Tuple
 
 import pyProblem as Prblm
 import pyStepper as Stepper
@@ -45,7 +45,7 @@ class Fwi():
                obs_data: np.ndarray,
                starting_model: np.ndarray,
                num_iter: int,
-               model_bounds: List[float] = None,
+               model_bounds: Tuple[float, float] = None,
                solver_type: str = 'nlcg',
                stepper_type: str = 'parabolic',
                max_steps: int = None,
@@ -65,10 +65,10 @@ class Fwi():
       obs_data (numpy.ndarray): observed data
       starting_model (numpy.ndarray): starting model
       num_iter (int): number of iterations
-      model_bounds (List[numpy.ndarray], optional): Bounds of the model, if any.
-        Defaults to None.
+      model_bounds (Tuple[float, float], optional): [min, max] model bounds of
+        the  model, if any. Defaults to None.
       solver_type (str, optional): solver to use, options are 'nlcg', 'lbfgs',
-        or 'lbfgsb'. Defaults to 'lbfgs'. 
+        or 'lbfgsb'. Defaults to 'nlcg'. 
       stepper_type (str, optional): stepper to use options are 'parabolic',
         'linear', 'parabolicNew'. Defaults to 'parabolic'.
       max_steps (int, optional): maximum number of steps to take. Defaults to
@@ -173,7 +173,7 @@ class Fwi():
 
     Parameters:
       wave_eq_solver (wave_equation.WaveEquation): the wave equation solver
-      model_bounds (list[float], optional): Bounds of the model, if any.
+      model_bounds (Tuple[float, float], optional): Bounds of the model, if any.
         Defaults to None.
     """
     if model_bounds is None:

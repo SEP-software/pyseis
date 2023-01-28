@@ -3,30 +3,35 @@
 The ElasticIsotropic2D and ElasticIsotropic3D inherit from the abstract
 ElasticIsotropic class. ElasticIsotropic2D and ElasticIsotropic3D can model
 the elastic, isotropic wave equation in two and three dimensions, respectively,
-using a staggered-grid implementation. With an elastic earth model parameterized
-by (v_p, v_s, and rho), a source wavelet, source positions, and receiver
-positions, a user can forward model the wave wave equation and sample at
-receiver locations. Pybind11 is used to wrap C++ code which then uses CUDA 
-kernels to execute finite difference operations. Current implementation
-parallelizes shots over gpus. 
+using velocity/stress wavefields and a staggered-grid implementation. With an
+elastic earth model parameterized by (v_p, v_s, and rho), a source wavelet,
+source positions, and receiver positions, a user can forward model the wave wave
+equation and sample at receiver locations. Pybind11 is used to wrap C++ code
+which then uses CUDA kernels to execute finite difference operations. Current
+implementation parallelizes shots over gpus. Absorbing boundaries are used to
+handle edge effects. Domain decompisition not vailable. Free surface available
+in 2D.
 
-  Typical usage example:
-    #### 2D ##### 
-    Elastic_2d = Elastic_isotropic.ElasticIsotropic2D(
-      vp_vs_rho_model_nd_array,
-      (d_x, d_z),
-      wavelet_nd_array,
-      d_t,
-      src_locations_nd_array,
-      rec_locations_nd_array,
-      gpus=[0,1,2,4])
-    data = Elastic_2d.forward(vp_model_half_space)
+Typical usage example:
+  #### 2D ##### 
+  from pyseis.wave_equations import elastic_isotropic
+  
+  elastic_2d = elastic_isotropic.ElasticIsotropic2D(
+    vp_vs_rho_model_nd_array,
+    (d_x, d_z),
+    wavelet_nd_array,
+    d_t,
+    src_locations_nd_array,
+    rec_locations_nd_array,
+    gpus=[0,1,2,4])
+  data = elastic_2d.forward(vp_vs_rho_model_nd_array)
 """
 import numpy as np
 from math import ceil
 import abc
-import typing
+from typing import Tuple, List
 
+import genericIO
 import Hypercube
 import SepVector
 import pyOperator as Operator
@@ -48,22 +53,108 @@ from elasticParamConvertModule_3D import ElasticConvJab_3D as _ElasticModelConvJ
 
 
 class ElasticIsotropic(wave_equation.WaveEquation):
+  """Abstract elastic wave equation solver class.
+
+  Contains all methods and variables common to and elastic 2D and 3D
+  wave equation solvers. See wave_equation.WaveEquation for __init__
+  """
   _BLOCK_SIZE = 16
   _N_MODEL_PARAMETERS = 3
 
   def __init__(self,
-               model,
-               model_sampling,
-               wavelet,
-               d_t,
-               src_locations,
-               rec_locations,
-               gpus,
-               model_padding=None,
-               model_origins=None,
-               recording_components=None,
-               subsampling=None,
-               free_surface=False):
+               model: np.ndarray,
+               model_sampling: Tuple[float, ...],
+               wavelet: np.ndarray,
+               d_t: float,
+               src_locations: np.ndarray,
+               rec_locations: np.ndarray,
+               gpus: List[int],
+               model_padding: Tuple[int, ...] = None,
+               model_origins: Tuple[int, ...] = None,
+               recording_components: List[str] = None,
+               subsampling: int = None,
+               free_surface: bool = False) -> None:
+    """Constructor for elastic wave equation solvers.
+
+    Args:
+      model (np.ndarray): earth model without padding (2D or 3D). For the
+        acoustic wave equation, this must be pressure wave velocity in (m/s). If
+        elastic, the first axis must be the three elastic parameters (pressure
+        wave velocity (m/s), shear wave velocity (m/s), and density (kg/m^3)).
+          - a 3D elastic model will have shape (3, n_y, n_x, n_z)
+          - a 2D acoustic model will have shape (n_x, n_z)
+      model_sampling (Tuple[float, ...]): spatial sampling of provided earth
+        model axes. Must be same length as number of dimensions of model.
+          - (d_y, d_x, d_z) with 3D models
+          - (d_x, d_z) with 2D models
+      wavelet (np.ndarray): : source signature of wave equation. Also defines
+        the recording duration of the seismic data space.
+        - In 2D and 3D acoustic case, wavelet will have shape (n_t)
+        - In 2D, elastic case, wavelet will have shape (5, n_t) describing the
+          five source components (Fx, Fz, sxx, szz, sxz)
+        - In 3D, elastic case, wavelet will have shape (9, n_t) describing the
+          nine source components (Fy, Fx, Fz, syy, sxx, szz, syx, syz, sxz)
+      d_t (float): temporal sampling rate (s)
+      src_locations (np.ndarray): coordinates of each seismic source to
+        propagate. 
+          - In 2D has shape (n_src, 2) where two values on fast axis describe
+            the x and y positions, respectively.
+          - In 3D has shape (n_src, 3) where the fast axis describes the y, x,
+            and z positions, respectively.
+      rec_locations (np.ndarray): receiver locations of each src. The number
+        of receivers must be the same for each shot, but the position of the
+        receivers can change.
+          - In the 2D case, can either have shape (n_rec, 2) if the receiver
+            positions are constant or (n_src,n_rec,2) if the receiver
+            positions change with each shot.
+          - In the 3D case, can either have shape (n_rec, 3) if the receiver
+            positions are constant or (n_src,n_rec,3) if the receiver
+            positions change with each shot.
+      gpus (List[int]): the gpu devices to use for wave propagation.
+      model_padding (Tuple[int, ...], optional): Thickness of absorbing boundary,
+        defined in number of samples, to be added to each axis of the earth
+        model. Just like the model_sampling arguement, must be same length as
+        the number of dimensions of model. If None, the padding on each axis
+        is 50 samples in 2D and 30 samples in 3D. Defaults to None.
+      model_origins (Tuple[int, ...], optional): Origin of each axis of the earth
+        model. Just like the model_sampling arguement, must be same length as
+        the number of dimensions of model. If None, the origins are assumed to
+        be 0.0. Defaults to None.
+      recording_components (List[str, ...]), optional): A list of the wavefield
+       components to record at receiver locations. Options are any number of
+       those listed below. If None, all veclocity and stress tensor components
+       are recorded. Default is None.
+          In 2D:
+          - 'vx' - particle velocity in the x direction (default)
+          - 'vz' - particle velocity in the z direction (default)
+          - 'sxx' - xx component of the stress tensor (default)
+          - 'szz' - zz component of the stress tensor (default)
+          - 'sxz' - xz component of the stress tensor (default)
+          - 'p' - pressure := 0.5 * (sxx + szz)
+          In 3D:
+          - 'vx' - particle velocity in the x direction (default)
+          - 'vy' - particle velocity in the y direction (default)
+          - 'vz' - particle velocity in the z direction (default)
+          - 'sxx' - xx component of the stress tensor (default)
+          - 'syy' - yy component of the stress tensor (default)
+          - 'szz' - zz component of the stress tensor (default)
+          - 'sxz' - xz component of the stress tensor (default)
+          - 'sxy' - xy component of the stress tensor (default)
+          - 'syx' - yz component of the stress tensor (default)
+          - 'p' - pressure := 0.33333 * (sxx + syy + szz)
+      subsampling (Tuple[int, ...], optional): Exact subsampling multiple of d_t to
+        use during finite difference wave propagation. If None, this is
+        calculated automatically by the wave equation solver to obey the
+        Courant condition. Defaults to None.
+          - subsampling = 3 implies that the finite difference code will take
+            time steps at intervals of d_t / 3.
+      free_surface (bool, optional): whether of not to use a free surface
+        condition. Defaults to False.
+
+    Raises:
+        NotImplementedError: if free surface condition is requested but is not
+          available.
+    """
     if not recording_components:
       recording_components = self._DEFAULT_RECORDING_COMPONENTS
     self.recording_components = recording_components
@@ -86,20 +177,37 @@ class ElasticIsotropic(wave_equation.WaveEquation):
 
     # self.data_sep = self._operator.range.clone()
 
-  def _get_model_shape(self, model):
-    return model.shape[1:]
+  def _get_model_shape(self, model: np.ndarray) -> Tuple[int, ...]:
+    """Helper function to get shape of model space.
+    
+    Disregard elastic parameter axis.
 
-  def _pad_model(self, model: np.ndarray, padding: typing.Tuple,
-                 fat: int) -> np.ndarray:
-    """
-    Add padding to the model.
-
-    Parameters:
-        model (np.ndarray): 3D model to be padded
-        padding (Tuple[int, int]): Tuple of integers representing the padding of the model in each axis
+    Args:
+        model (np.ndarray): model space
 
     Returns:
-        np.ndarray: Padded 3D model
+        Tuple[int, ...]: shape of model space
+    """
+    return model.shape[1:]
+
+  def _pad_model(self, model: np.ndarray, padding: Tuple[Tuple[int, int], ...],
+                 fat: int) -> np.ndarray:
+    """Helper to pad earth models before wave prop.
+    
+    Args:
+        model (np.ndarray):  earth model without padding (2D or 3D). For the
+        acoustic wave equation, this must be pressure wave velocity in (m/s). If
+        elastic, the first axis must be the three elastic parameters (pressure
+        wave velocity (m/s), shear wave velocity (m/s), and density (kg/m^3)).
+          - a 3D elastic model will have shape (3, n_y, n_x, n_z)
+          - a 2D elastic model will have shape (3, n_x, n_z)
+        padding (Tuple[Tuple[int, int], ...]): the padding (minus, plus)
+          tuples that was applied to each axis.
+        fat (int): the additional boundary to be added around the padding. Used
+          to make laplacian computation more easily self adjoint.
+
+    Returns:
+        np.ndarray: padded elastic earth model
     """
     fat_pad = ((fat, fat),) * len(padding)
     return np.pad(np.pad(model, ((0, 0), *padding), mode='edge'),
@@ -117,11 +225,84 @@ class ElasticIsotropic(wave_equation.WaveEquation):
     ds.append(1.0)
     return SepVector.getSepVector(ns=ns, os=os, ds=ds)
 
-  def _get_velocities(self, model):
+  def _get_velocities(self, model: np.ndarray) -> np.ndarray:
+    """Helper function to return only the velocity components of a model.
+    
+    Returns only Vp and Vs
+
+    Args:
+        model (np.ndarray): earth model
+
+    Returns:
+        np.ndarray: velocity components of model
+    """
     return model[:2]
 
-  def _setup_operators(self, data_sep, model_sep, sep_par, src_devices,
-                       rec_devices, wavelet_nl_sep, wavelet_lin_sep):
+  def _setup_data(self,
+                  n_t: int,
+                  d_t: float,
+                  data: np.ndarray = None) -> SepVector.floatVector:
+    """Helper to setup the SepVector data space.
+    
+    Args:
+        n_t (int): number of time samples in the data space
+        d_t (float): time sampling in the data space (s)
+        data (np.ndarray, optional): Data to fill SepVector. If None, filled
+          with zeros. Defaults to None.
+
+    Returns:
+        SepVector.floatVector: data space
+    """
+    if 'n_src' not in self.fd_param:
+      raise RuntimeError(
+          'self.fd_param[\'n_src\'] must be set to set setup_data')
+    if 'n_rec' not in self.fd_param:
+      raise RuntimeError(
+          'self.fd_param[\'n_rec\'] must be set to set setup_data')
+
+    data_sep = SepVector.getSepVector(
+        Hypercube.hypercube(axes=[
+            Hypercube.axis(n=n_t, o=0.0, d=d_t),
+            Hypercube.axis(n=self.fd_param['n_rec'], o=0.0, d=1.0),
+            Hypercube.axis(n=self._N_WFLD_COMPONENTS, o=0.0, d=1),
+            Hypercube.axis(n=self.fd_param['n_src'], o=0.0, d=1.0)
+        ]))
+
+    return data_sep
+
+  def _setup_operators(
+      self, data_sep: SepVector.floatVector, model_sep: SepVector.floatVector,
+      sep_par: genericIO.io, src_devices: List, rec_devices: List,
+      wavelet_nl_sep: SepVector.floatVector,
+      wavelet_lin_sep: SepVector.floatVector) -> Operator.NonLinearOperator:
+    """Helper function to set up all operators needed for elastic wave prop
+    
+    For the elastic wave prop this consists of the nonlinear and jacobian
+    wave equation operators combined with: 
+      1. the operator to convert Vp, Vs, and Rho to Rho, Lame, and Mu
+      2. The wavefield sampling operator to sample the velocity stress wavefields.
+    
+    nonlinear: s(f(p(m))) = d | where p, f, and s are the nonlinear parameter
+      conversion, wave equation, and data sampling operators respectively.
+    jacobian: SFMm = d | where P, F, and S are the lienarized parameter
+      conversion, wave equation, and data sampling operators respectively.
+    
+    
+
+    Args:
+        data_sep (SepVector.floatVector): data space in SepVector format
+        model_sep (SepVector.floatVector): model space in SepVector format
+        sep_par (genericIO.io): io object containing all fd_params
+        src_devices (List): list of pybind11 source device classes
+        rec_devices (List): list of pybind11 receiver device classes
+        wavelet_nl_sep (SepVector.floatVector): the wavelet for nonlinear wave
+          prop in SepVector format
+        wavelet_lin_sep (SepVector.floatVector): the wavelets for linear wave
+          prop in SepVector format
+
+    Returns:
+        Operator.NonLinearOperator: all combined operators
+    """
     # setup model sampling operator
     nl_op = self._nl_elastic_param_conv_class(model_sep, 1)
     jac_op = self._jac_elastic_param_conv_class(model_sep, model_sep, 1)
@@ -142,11 +323,38 @@ class ElasticIsotropic(wave_equation.WaveEquation):
 
     return _operator
 
-  def _get_free_surface_pad_minus(self):
+  def _get_free_surface_pad_minus(self) -> int:
+    """Abstract helper function to get the amount of padding to add to the free surface
+
+    Raises:
+        NotImplementedError: if not implemented by child class
+
+    Returns:
+        int: number of cells to pad
+    """
     return self._FAT
 
 
 class ElasticIsotropic2D(ElasticIsotropic):
+  """2D elastic, isotropic wave equation solver class.
+
+  Velocity/stress formulation with a staggered grid. Expects model space to be
+  paramterized by Vp, Vs, and Rho. Free surface condition is avialable.
+  
+  Typical usage example:
+    from pyseis.wave_equations import elastic_isotropic
+    
+    elastic_2d = elastic_isotropic.ElasticIsotropic2D(
+      vp_vs_rho_model_nd_array,
+      (d_x, d_z),
+      wavelet_nd_array,
+      d_t,
+      src_locations_nd_array,
+      rec_locations_nd_array,
+      gpus=[0,1,2,4],
+      recording_components=['vx','vz'])
+    data = elastic_2d.forward(vp_vs_rho_model_nd_array)
+  """
   _N_WFLD_COMPONENTS = 5
   _FAT = 4
   _nl_wave_pybind_class = nonlinearPropElasticShotsGpu
@@ -169,20 +377,58 @@ class ElasticIsotropic2D(ElasticIsotropic):
       'sxz',
   ]
 
-  def _truncate_model(self, model):
-    x_pad = self.fd_param['x_pad_minus'] + self._FAT
-    x_pad_plus = self.fd_param['x_pad_plus'] + self._FAT
-    z_pad = self.fd_param['z_pad_minus'] + self._FAT
-    z_pad_plus = self.fd_param['z_pad_plus'] + self._FAT
-    return model[:, x_pad:-x_pad_plus:, z_pad:-z_pad_plus:]
+  def _make_sep_wavelets(self, wavelet: np.ndarray, d_t: float) -> Tuple:
+    """Helper function to make SepVector wavelets needed for wave prop
+    
+    The elastic 2D prop uses a 4d SepVector for nonlinear prop and a list
+    containing a single, 3d SepVector for linear prop. THIS IS FOR BACKWARDS
+    COMPATIBILITY WITH PYBIND11 C++ CODE.
 
-  def _setup_src_devices(self,
-                         src_locations,
-                         n_t,
-                         interp_method='linear',
-                         interp_n_filters=4):
+    Args:
+      wavelet (np.ndarray): : source signature of wave equation. Also defines
+        the recording duration of the seismic data space.
+        - In 2D, elastic case, wavelet will have shape (5, n_t) describing the
+          five source components (Fx, Fz, sxx, szz, sxz)
+        - In 3D, elastic case, wavelet will have shape (9, n_t) describing the
+          nine source components (Fy, Fx, Fz, syy, sxx, szz, syx, syz, sxz)
+      d_t (float): temporal sampling rate (s)
+
+    Returns:
+        Tuple: 4d SepVector.floatVector (wavelet for 3d nonlinear elastic prop)
+          and list with a single 4d SepVector.floatVector (wavelet linear wave
+          prop).
     """
-    src_locations - [n_src,(x_pos,z_pos)]
+    n_t = wavelet.shape[-1]
+    wavelet_nl_sep = SepVector.getSepVector(
+        Hypercube.hypercube(axes=[
+            Hypercube.axis(n=n_t, o=0.0, d=d_t),
+            Hypercube.axis(n=1),
+            Hypercube.axis(n=self._N_WFLD_COMPONENTS),
+            Hypercube.axis(n=1)
+        ]))
+    wavelet_nl_sep.getNdArray()[0, :, 0, :] = wavelet
+
+    wavelet_lin_sep = SepVector.getSepVector(
+        Hypercube.hypercube(axes=[
+            Hypercube.axis(n=n_t, o=0.0, d=d_t),
+            Hypercube.axis(n=self._N_WFLD_COMPONENTS),
+            Hypercube.axis(n=1)
+        ]))
+    wavelet_lin_sep.getNdArray()[:] = wavelet
+    wavelet_lin_sep = [wavelet_lin_sep.getCpp()]
+
+    return wavelet_nl_sep, wavelet_lin_sep
+
+  def _setup_src_devices(self, src_locations: np.ndarray, n_t: float) -> List:
+    """Helper function to setup source devices needed for wave prop.
+
+    Args:
+        src_locations (np.ndarray): location of each source device. Should have
+          shape (n_src,n_dim) where n_dim is the number of dimensions.
+        n_t (float): number of time steps in the wavelet/data space
+
+    Returns:
+        List: list of pybind11 device classes
     """
     if self.model_sep is None:
       raise RuntimeError('self.model_sep must be set to set src devices')
@@ -204,20 +450,27 @@ class ElasticIsotropic2D(ElasticIsotropic):
           src_devices_staggered_grids, staggered_grid_hypers):
         src_devices_staggered_grid.append(
             device_gpu_2d(z_coord_sep.getCpp(), x_coord_sep.getCpp(),
-                          staggered_grid_hyper.getCpp(), int(n_t),
-                          interp_method, interp_n_filters, 0, 0, 0))
+                          staggered_grid_hyper.getCpp(), int(n_t), 'linear', 4,
+                          0, 0, 0))
 
     self.fd_param['n_src'] = len(src_locations)
-    # self.src_devices = src_devices_staggered_grids
     return src_devices_staggered_grids
 
-  def _setup_rec_devices(self,
-                         rec_locations,
-                         n_t,
-                         interp_method='linear',
-                         interp_n_filters=4):
-    """
-    src_locations - [n_rec,(x_pos,z_pos)] OR [n_src,n_rec,(x_pos,z_pos)]
+  def _setup_rec_devices(self, rec_locations: np.ndarray, n_t: float) -> List:
+    """Helper function to setup receiver devices needed for wave prop.
+
+    Args:
+        rec_locations (np.ndarray): location of each source device. Should have
+          shape (n_rec, n_dim) or (n_src, n_rec, n_dim) where n_dim is the
+          number of dimensions. The latter allows for different receiver
+          positions for each shot (aka streamer geometry).
+        n_t (float): number of time steps in the wavelet/data space
+
+    Raises:
+        NotImplementedError: if not implemented by child class
+
+    Returns:
+        List: list of pybind11 device classes
     """
     if self.model_sep is None:
       raise RuntimeError('self.model_sep must be set to set src devices')
@@ -253,52 +506,12 @@ class ElasticIsotropic2D(ElasticIsotropic):
           rec_devices_staggered_grids, staggered_grid_hypers):
         rec_devices_staggered_grid.append(
             device_gpu_2d(z_coord_sep.getCpp(), x_coord_sep.getCpp(),
-                          staggered_grid_hyper.getCpp(), int(n_t),
-                          interp_method, interp_n_filters, 0, 0, 0))
+                          staggered_grid_hyper.getCpp(), int(n_t), 'linear', 4,
+                          0, 0, 0))
 
     self.fd_param['n_rec'] = n_rec
     # self.rec_devices = rec_devices_staggered_grids
     return rec_devices_staggered_grids
-
-  def _setup_data(self, n_t, d_t):
-    if 'n_src' not in self.fd_param:
-      raise RuntimeError(
-          'self.fd_param[\'n_src\'] must be set to set setup_data')
-    if 'n_rec' not in self.fd_param:
-      raise RuntimeError(
-          'self.fd_param[\'n_rec\'] must be set to set setup_data')
-
-    data_sep = SepVector.getSepVector(
-        Hypercube.hypercube(axes=[
-            Hypercube.axis(n=n_t, o=0.0, d=d_t),
-            Hypercube.axis(n=self.fd_param['n_rec'], o=0.0, d=1.0),
-            Hypercube.axis(n=self._N_WFLD_COMPONENTS, o=0.0, d=1),
-            Hypercube.axis(n=self.fd_param['n_src'], o=0.0, d=1.0)
-        ]))
-
-    return data_sep
-
-  def _make_sep_wavelets(self, wavelet, d_t):
-    n_t = wavelet.shape[-1]
-    wavelet_nl_sep = SepVector.getSepVector(
-        Hypercube.hypercube(axes=[
-            Hypercube.axis(n=n_t, o=0.0, d=d_t),
-            Hypercube.axis(n=1),
-            Hypercube.axis(n=self._N_WFLD_COMPONENTS),
-            Hypercube.axis(n=1)
-        ]))
-    wavelet_nl_sep.getNdArray()[0, :, 0, :] = wavelet
-
-    wavelet_lin_sep = SepVector.getSepVector(
-        Hypercube.hypercube(axes=[
-            Hypercube.axis(n=n_t, o=0.0, d=d_t),
-            Hypercube.axis(n=self._N_WFLD_COMPONENTS),
-            Hypercube.axis(n=1)
-        ]))
-    wavelet_lin_sep.getNdArray()[:] = wavelet
-    wavelet_lin_sep = [wavelet_lin_sep.getCpp()]
-
-    return wavelet_nl_sep, wavelet_lin_sep
 
   def _make_staggered_grid_hypers(self, n_x, n_z, o_x, o_z, d_x, d_z):
     z_axis = Hypercube.axis(n=n_z, o=o_z, d=d_z)
@@ -319,8 +532,34 @@ class ElasticIsotropic2D(ElasticIsotropic):
 
     return center_grid_hyper, x_staggered_grid_hyper, z_staggered_grid_hyper, xz_staggered_grid_hyper
 
+  def _truncate_model(self, model):
+    x_pad = self.fd_param['x_pad_minus'] + self._FAT
+    x_pad_plus = self.fd_param['x_pad_plus'] + self._FAT
+    z_pad = self.fd_param['z_pad_minus'] + self._FAT
+    z_pad_plus = self.fd_param['z_pad_plus'] + self._FAT
+    return model[:, x_pad:-x_pad_plus:, z_pad:-z_pad_plus:]
+
 
 class ElasticIsotropic3D(ElasticIsotropic):
+  """3D elastic, isotropic wave equation solver class.
+
+  Velocity/stress formulation with a staggered grid. Expects model space to be
+  paramterized by Vp, Vs, and Rho. Free surface condition is NOT avialable. 
+  
+  Typical usage example (see examples directory for more):
+    from pyseis.wave_equations import elastic_isotropic
+    
+    elastic_3d = elastic_isotropic.ElasticIsotropic3D(
+      vp_vs_rho_model_nd_array,
+      (d_y, d_x, d_z),
+      wavelet_nd_array,
+      d_t,
+      src_locations_nd_array,
+      rec_locations_nd_array,
+      gpus=[0,1,2,4],
+      recording_components=['vy','vx','vz'])
+    data = elastic_3d.forward(vp_vs_rho_model_nd_array)
+  """
   _N_WFLD_COMPONENTS = 9
   _FAT = 4
   required_sep_params = [
@@ -339,13 +578,47 @@ class ElasticIsotropic3D(ElasticIsotropic):
       'vx', 'vy', 'vz', 'sxx', 'syy', 'szz', 'sxz', 'sxy', 'syz'
   ]
 
-  def _truncate_model(self, model):
-    y_pad = self.fd_param['y_pad'] + self._FAT
-    x_pad = self.fd_param['x_pad_minus'] + self._FAT
-    x_pad_plus = self.fd_param['x_pad_plus'] + self._FAT
-    z_pad = self.fd_param['z_pad_minus'] + self._FAT
-    z_pad_plus = self.fd_param['z_pad_plus'] + self._FAT
-    return model[:, y_pad:-y_pad:, x_pad:-x_pad_plus:, z_pad:-z_pad_plus:]
+  def _make_sep_wavelets(self, wavelet: np.ndarray, d_t: float) -> Tuple:
+    """Helper function to make SepVector wavelets needed for wave prop
+    
+    The elastic 3D prop uses a 4d SepVector for nonlinear prop and a list
+    containing a single, 3d SepVector for linear prop. THIS IS FOR BACKWARDS
+    COMPATIBILITY WITH PYBIND11 C++ CODE.
+
+    Args:
+      wavelet (np.ndarray): : source signature of wave equation. Also defines
+        the recording duration of the seismic data space.
+        - In 2D, elastic case, wavelet will have shape (5, n_t) describing the
+          five source components (Fx, Fz, sxx, szz, sxz)
+        - In 3D, elastic case, wavelet will have shape (9, n_t) describing the
+          nine source components (Fy, Fx, Fz, syy, sxx, szz, syx, syz, sxz)
+      d_t (float): temporal sampling rate (s)
+
+    Returns:
+        Tuple: 4d SepVector.floatVector (wavelet for 3d nonlinear elastic prop)
+          and list with a single 4d SepVector.floatVector (wavelet linear wave
+          prop).
+    """
+    n_t = wavelet.shape[-1]
+    wavelet_nl_sep = SepVector.getSepVector(
+        Hypercube.hypercube(axes=[
+            Hypercube.axis(n=n_t, o=0.0, d=d_t),
+            Hypercube.axis(n=1),
+            Hypercube.axis(n=self._N_WFLD_COMPONENTS),
+            Hypercube.axis(n=1)
+        ]))
+    wavelet_nl_sep.getNdArray().flat[:] = wavelet
+
+    wavelet_lin_sep = SepVector.getSepVector(
+        Hypercube.hypercube(axes=[
+            Hypercube.axis(n=n_t, o=0.0, d=d_t),
+            Hypercube.axis(n=1),
+            Hypercube.axis(n=self._N_WFLD_COMPONENTS)
+        ]))
+    wavelet_lin_sep.getNdArray().flat[:] = wavelet
+    wavelet_lin_sep = [wavelet_lin_sep.getCpp()]
+
+    return wavelet_nl_sep, wavelet_lin_sep
 
   def _setup_src_devices(self, src_locations, n_t, interp_method='linear'):
     """
@@ -384,20 +657,26 @@ class ElasticIsotropic3D(ElasticIsotropic):
         src_devices_staggered_grid.append(
             device_gpu_3d(z_coord_sep.getCpp(), x_coord_sep.getCpp(),
                           y_coord_sep.getCpp(), staggered_grid_hyper.getCpp(),
-                          int(n_t), sep_par.param, 0, 0, 0, 0, interp_method,
-                          1))
+                          int(n_t), sep_par.param, 0, 0, 0, 0, 'linear', 1))
 
     self.fd_param['n_src'] = len(src_locations)
-    # self.src_devices = src_devices_staggered_grids
     return src_devices_staggered_grids
 
-  def _setup_rec_devices(self,
-                         rec_locations,
-                         n_t,
-                         interp_method='linear',
-                         interp_n_filters=4):
-    """
-    src_locations - [n_rec,(x_pos,z_pos)] OR [n_src,n_rec,(x_pos,z_pos)]
+  def _setup_rec_devices(self, rec_locations: np.ndarray, n_t: float) -> List:
+    """Helper function to setup receiver devices needed for wave prop.
+
+    Args:
+        rec_locations (np.ndarray): location of each source device. Should have
+          shape (n_rec, n_dim) or (n_src, n_rec, n_dim) where n_dim is the
+          number of dimensions. The latter allows for different receiver
+          positions for each shot (aka streamer geometry).
+        n_t (float): number of time steps in the wavelet/data space
+
+    Raises:
+        NotImplementedError: if not implemented by child class
+
+    Returns:
+        List: list of pybind11 device classes
     """
     if self.model_sep is None:
       raise RuntimeError('self.model_sep must be set to set src devices')
@@ -448,52 +727,11 @@ class ElasticIsotropic3D(ElasticIsotropic):
         rec_devices_staggered_grid.append(
             device_gpu_3d(z_coord_sep.getCpp(), x_coord_sep.getCpp(),
                           y_coord_sep.getCpp(), staggered_grid_hyper.getCpp(),
-                          int(n_t), sep_par.param, 0, 0, 0, 0, interp_method,
-                          1))
+                          int(n_t), sep_par.param, 0, 0, 0, 0, 'linear', 1))
 
     self.fd_param['n_rec'] = n_rec
     # self.rec_devices = rec_devices_staggered_grids
     return rec_devices_staggered_grids
-
-  def _setup_data(self, n_t, d_t):
-    if 'n_src' not in self.fd_param:
-      raise RuntimeError(
-          'self.fd_param[\'n_src\'] must be set to set setup_data')
-    if 'n_rec' not in self.fd_param:
-      raise RuntimeError(
-          'self.fd_param[\'n_rec\'] must be set to set setup_data')
-
-    data_sep = SepVector.getSepVector(
-        Hypercube.hypercube(axes=[
-            Hypercube.axis(n=n_t, o=0.0, d=d_t),
-            Hypercube.axis(n=self.fd_param['n_rec'], o=0.0, d=1.0),
-            Hypercube.axis(n=self._N_WFLD_COMPONENTS, o=0.0, d=1),
-            Hypercube.axis(n=self.fd_param['n_src'], o=0.0, d=1.0)
-        ]))
-
-    return data_sep
-
-  def _make_sep_wavelets(self, wavelet, d_t):
-    n_t = wavelet.shape[-1]
-    wavelet_nl_sep = SepVector.getSepVector(
-        Hypercube.hypercube(axes=[
-            Hypercube.axis(n=n_t, o=0.0, d=d_t),
-            Hypercube.axis(n=1),
-            Hypercube.axis(n=self._N_WFLD_COMPONENTS),
-            Hypercube.axis(n=1)
-        ]))
-    wavelet_nl_sep.getNdArray().flat[:] = wavelet
-
-    wavelet_lin_sep = SepVector.getSepVector(
-        Hypercube.hypercube(axes=[
-            Hypercube.axis(n=n_t, o=0.0, d=d_t),
-            Hypercube.axis(n=1),
-            Hypercube.axis(n=self._N_WFLD_COMPONENTS)
-        ]))
-    wavelet_lin_sep.getNdArray().flat[:] = wavelet
-    wavelet_lin_sep = [wavelet_lin_sep.getCpp()]
-
-    return wavelet_nl_sep, wavelet_lin_sep
 
   def _make_staggered_grid_hypers(self, n_y, n_x, n_z, o_y, o_x, o_z, d_y, d_x,
                                   d_z):
@@ -524,6 +762,14 @@ class ElasticIsotropic3D(ElasticIsotropic):
         axes=[z_axis_staggered, x_axis, y_axis_staggered, param_axis])
 
     return center_grid_hyper, x_staggered_grid_hyper, y_staggered_grid_hyper, z_staggered_grid_hyper, xz_staggered_grid_hyper, xy_staggered_grid_hyper, yz_staggered_grid_hyper
+
+  def _truncate_model(self, model):
+    y_pad = self.fd_param['y_pad'] + self._FAT
+    x_pad = self.fd_param['x_pad_minus'] + self._FAT
+    x_pad_plus = self.fd_param['x_pad_plus'] + self._FAT
+    z_pad = self.fd_param['z_pad_minus'] + self._FAT
+    z_pad_plus = self.fd_param['z_pad_plus'] + self._FAT
+    return model[:, y_pad:-y_pad:, x_pad:-x_pad_plus:, z_pad:-z_pad_plus:]
 
 
 def convert_to_lame(model):
