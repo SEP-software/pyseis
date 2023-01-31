@@ -46,6 +46,7 @@ SEP_PARAM_CYPHER = {
     'surfaceCondition': 'free_surface'
 }
 COURANT_LIMIT = 0.45
+GRID_CELLS_PER_WAVELENGTH = 3.0
 
 
 class WaveEquation(abc.ABC):
@@ -222,10 +223,19 @@ class WaveEquation(abc.ABC):
     # pads model, makes self.model_sep, and updates self.fd_param
     self.model_sep, self.model_padding = self._setup_model(
         model, model_padding, model_sampling, model_origins, free_surface)
+    self.model_sampling = model_sampling
 
     # make and set wavelet
     self.wavelet_nl_sep, self.wavelet_lin_sep = self._setup_wavelet(
         wavelet, d_t)
+
+    # check that that the starting model will not cause dispersion
+    if not self.check_dispersion(self._get_velocities(model),
+                                 self.model_sampling, self.fd_param['f_max']):
+      min_vel = self.find_min_vel(self.model_sampling, self.fd_param['f_max'])
+      raise RuntimeError(
+          f"The provided model will cause dispersion because the minumum velocity value is too low. Given the current max frequency in the source wavelet, {self.fd_param['f_max']}Hz, and max spatial sampling, {max(self.model_sampling)}m, the minimum allowed velocity is {min_vel} m/s"
+      )
 
     # make and set source devices
     self.src_devices = self._setup_src_devices(src_locations,
@@ -1022,6 +1032,20 @@ class WaveEquation(abc.ABC):
     max_vel = np.amax(vel_models)
     d_t_sub = math.ceil(max_vel * d_t / (min(model_sampling) * COURANT_LIMIT))
     return d_t_sub
+
+  def check_dispersion(self, velocities, sampling, f_max):
+    min_vel = velocities.min()
+    max_spatial_sampling = max(sampling)
+    dispersion = min_vel / f_max / max_spatial_sampling
+
+    if dispersion < GRID_CELLS_PER_WAVELENGTH:
+      return False
+    else:
+      return True
+
+  def find_min_vel(self, sampling, f_max):
+    max_spatial_sampling = max(sampling)
+    return GRID_CELLS_PER_WAVELENGTH * max_spatial_sampling * f_max
 
 
 class _NonlinearWaveCppOp(abc.ABC, Operator.Operator):

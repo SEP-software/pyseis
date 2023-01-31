@@ -178,6 +178,24 @@ def test_init_with_wrong_sub(ricker_wavelet, fixed_rec_locations, src_locations,
         subsampling=1)
 
 
+@pytest.mark.gpu
+def test_init_with_low_vel(ricker_wavelet, fixed_rec_locations, src_locations,
+                           vp_model_half_space):
+  vp_model_too_low = np.ones_like(vp_model_half_space)
+  # Act
+  with pytest.raises(RuntimeError):
+    acoustic_2d = acoustic_isotropic.AcousticIsotropic2D(
+        model=vp_model_too_low,
+        model_sampling=(D_X, D_Z),
+        model_padding=(N_X_PAD, N_Z_PAD),
+        wavelet=ricker_wavelet,
+        d_t=D_T,
+        src_locations=src_locations,
+        rec_locations=fixed_rec_locations,
+        gpus=I_GPUS,
+        subsampling=1)
+
+
 def test_setup_wavelet(ricker_wavelet):
   # Arrange
   with patch.object(acoustic_isotropic.AcousticIsotropic2D, "_make", mock_make):

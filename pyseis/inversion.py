@@ -98,6 +98,16 @@ class Fwi():
           'the model space of the provided wave_eq_solver must match the shape of the provided starting_model'
       )
 
+    # check that that the starting model will not cause dispersion
+    if not wave_eq_solver.check_dispersion(
+        wave_eq_solver._get_velocities(starting_model),
+        wave_eq_solver.model_sampling, wave_eq_solver.fd_param['f_max']):
+      min_vel = wave_eq_solver.find_min_vel(wave_eq_solver.model_sampling,
+                                            wave_eq_solver.fd_param['f_max'])
+      raise RuntimeError(
+          f"The provided starting_model will cause dispersion because the minumum velocity value is too low. Given the current max frequency in the source wavelet, {wave_eq_solver.fd_param['f_max']}Hz, and max spatial sampling, {max(wave_eq_solver.model_sampling)}m, the minimum allowed velocity is {min_vel} m/s"
+      )
+
     self.wave_eq_solver = wave_eq_solver
 
     # add gradient mask operator

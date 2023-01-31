@@ -93,6 +93,23 @@ def test_init_fwi(acoustic_2d_weq_solver, vp_model_full_space, tmp_path):
 
 
 @pytest.mark.gpu
+def test_init_fwi_dispersion_fails(acoustic_2d_weq_solver, vp_model_full_space,
+                                   tmp_path):
+  # Arrange
+  obs_data = np.zeros_like(acoustic_2d_weq_solver.data_sep.getNdArray())
+
+  vp_model_will_fail = np.ones_like(vp_model_full_space)
+
+  # Run
+  with pytest.raises(RuntimeError):
+    fwi_prob = inversion.Fwi(wave_eq_solver=acoustic_2d_weq_solver,
+                             obs_data=obs_data,
+                             starting_model=vp_model_will_fail,
+                             num_iter=3,
+                             work_dir=tmp_path)
+
+
+@pytest.mark.gpu
 def test_run_fwi(acoustic_2d_weq_solver, vp_model_half_space,
                  vp_model_full_space, tmp_path):
   # Arrange
