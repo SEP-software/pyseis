@@ -10,4 +10,4 @@ src/*.yaml
 .ipython
 .python_history
 *.egg-info
-examples/imaging_and_inversion/wrk/*
+examples/*/wrk/*
