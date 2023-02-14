@@ -575,7 +575,7 @@ def test_jacobian_dot_product(ricker_wavelet, fixed_rec_locations,
   #assert
   acoustic_3d.dot_product_test(True)
 
-
+@pytest.mark.gpu
 def test_setup_fwi_operators(ricker_wavelet, fixed_rec_locations, src_locations,
                              vp_model_half_space):
   # setup
