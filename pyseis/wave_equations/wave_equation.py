@@ -1111,7 +1111,10 @@ class WaveEquation(abc.ABC):
     return d_t_sub
 
   def check_dispersion(self, velocities, sampling, f_max):
-    min_vel = velocities.min()
+    # find minumum velocity greater than 0
+    min_vel = velocities[velocities != 0].min()
+
+    # check dispersion
     max_spatial_sampling = max(sampling)
     dispersion = min_vel / f_max / max_spatial_sampling
 
