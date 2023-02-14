@@ -88,7 +88,7 @@ def plot_data(data,
               src_locations=None,
               rec_locations=None,
               n_shots=6,
-              title='wavelet',
+              title=None,
               figsize=(3, 5),
               pclip=99,
               clip=None,
@@ -127,3 +127,6 @@ def plot_data(data,
 
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
+    
+    if title:
+        fig.suptitle(title)

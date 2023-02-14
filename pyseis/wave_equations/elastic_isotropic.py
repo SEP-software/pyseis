@@ -163,19 +163,11 @@ class ElasticIsotropic(wave_equation.WaveEquation):
                      rec_locations, gpus, model_padding, model_origins,
                      subsampling, free_surface)
 
-  def _setup_wavefield_sampling_operator(self, _operator, recording_components,
-                                         data_sep):
+  def _setup_wavefield_sampling_operator(self, recording_components, data_sep):
     # _ElasticDatComp_nD expects a string of comma seperated values
     recording_components = ",".join(recording_components)
     #make sampling opeartor
-    wavefield_sampling_operator = self._wavefield_sampling_class(
-        recording_components, data_sep)
-    wavefield_sampling_operator = Operator.NonLinearOperator(
-        wavefield_sampling_operator, wavefield_sampling_operator)
-
-    return Operator.CombNonlinearOp(_operator, wavefield_sampling_operator)
-
-    # self.data_sep = self._operator.range.clone()
+    return self._wavefield_sampling_class(recording_components, data_sep)
 
   def _get_model_shape(self, model: np.ndarray) -> Tuple[int, ...]:
     """Helper function to get shape of model space.
@@ -270,24 +262,14 @@ class ElasticIsotropic(wave_equation.WaveEquation):
 
     return data_sep
 
-  def _setup_operators(
+  def _setup_nonlinear_operator(
       self, data_sep: SepVector.floatVector, model_sep: SepVector.floatVector,
       sep_par: genericIO.io, src_devices: List, rec_devices: List,
-      wavelet_nl_sep: SepVector.floatVector,
-      wavelet_lin_sep: SepVector.floatVector) -> Operator.NonLinearOperator:
-    """Helper function to set up all operators needed for elastic wave prop
+      wavelet_nl_sep: SepVector.floatVector) -> Operator.Operator:
+    """Helper function to set up the nonlinear operator
     
-    For the elastic wave prop this consists of the nonlinear and jacobian
-    wave equation operators combined with: 
-      1. the operator to convert Vp, Vs, and Rho to Rho, Lame, and Mu
-      2. The wavefield sampling operator to sample the velocity stress wavefields.
-    
-    nonlinear: s(f(p(m))) = d | where p, f, and s are the nonlinear parameter
-      conversion, wave equation, and data sampling operators respectively.
-    jacobian: SFMm = d | where P, F, and S are the lienarized parameter
-      conversion, wave equation, and data sampling operators respectively.
-    
-    
+    nonlinear: f(m) = d
+    jacobian: Fm = d 
 
     Args:
         data_sep (SepVector.floatVector): data space in SepVector format
@@ -301,27 +283,93 @@ class ElasticIsotropic(wave_equation.WaveEquation):
           prop in SepVector format
 
     Returns:
-        Operator.NonLinearOperator: all combined operators
+        Operator.Operator: all combined operators
     """
     # setup model sampling operator
-    nl_op = self._nl_elastic_param_conv_class(model_sep, 1)
-    jac_op = self._jac_elastic_param_conv_class(model_sep, model_sep, 1)
-    _param_convert_op = Operator.NonLinearOperator(nl_op, jac_op,
-                                                   jac_op.setBackground)
+    self._param_convert_nl_op = self._nl_elastic_param_conv_class(model_sep, 1)
     tmp_model = model_sep.clone()
-    _param_convert_op.nl_op.forward(0, tmp_model, model_sep)
+    self._param_convert_nl_op.forward(0, tmp_model, model_sep)
 
     # make and set gpu operator
-    _operator = self._setup_nl_wave_op(data_sep, model_sep, sep_par,
-                                       src_devices, rec_devices, wavelet_nl_sep)
+    self._wave_nl_op = self._setup_nl_wave_op(data_sep, model_sep, sep_par,
+                                              src_devices, rec_devices,
+                                              wavelet_nl_sep)
 
-    _operator = Operator.CombNonlinearOp(_param_convert_op, _operator)
+    # make wavefield sampling to gpu operator
+    self._wavefield_sampling_nl_op = self._setup_wavefield_sampling_operator(
+        self.recording_components, data_sep)
+
+    # append operators
+    _nl_op = Operator.ChainOperator(self._param_convert_nl_op, self._wave_nl_op)
+    _nl_op = Operator.ChainOperator(_nl_op, self._wavefield_sampling_nl_op)
+
+    return _nl_op
+
+  def _setup_jacobian_operator(
+      self, data_sep: SepVector.floatVector, model_sep: SepVector.floatVector,
+      sep_par: genericIO.io, src_devices: List, rec_devices: List,
+      wavelet_lin_sep: SepVector.floatVector) -> Operator.Operator:
+    """Helper function to set up the jacobian operator
+    
+    Args:
+        data_sep (SepVector.floatVector): data space in SepVector format
+        model_sep (SepVector.floatVector): model space in SepVector format
+        sep_par (genericIO.io): io object containing all fd_params
+        src_devices (List): list of pybind11 source device classes
+        rec_devices (List): list of pybind11 receiver device classes
+        wavelet_lin_sep (SepVector.floatVector): the wavelets for linear wave prop
+        
+    Returns:
+        Operator.Operator: all combined operators
+    """
+    # setup model sampling operator
+    self._param_convert_jac_op = self._jac_elastic_param_conv_class(
+        model_sep, model_sep, 1)
+    tmp_model = model_sep.clone()
+    self._param_convert_nl_op.forward(0, model_sep, tmp_model)
+
+    # make and set gpu operator
+    self._wave_jac_op = self._setup_jac_wave_op(data_sep, tmp_model, sep_par,
+                                                src_devices, rec_devices,
+                                                wavelet_lin_sep)
+
+    # make wavefield sampling to gpu operator
+    self._wavefield_sampling_jac_op = self._setup_wavefield_sampling_operator(
+        self.recording_components, data_sep)
+
+    # append operators
+    _jac_op = Operator.ChainOperator(self._param_convert_jac_op,
+                                     self._wave_jac_op)
+    _jac_op = Operator.ChainOperator(_jac_op, self._wavefield_sampling_jac_op)
+
+    return _jac_op
+
+  def _combine_nl_and_jac_operators(self) -> Operator.NonLinearOperator:
+    """Combine the nonlinear and jacobian operators into one nonlinear operator
+
+    Returns:
+        Operator.NonlinearOperator: a nonlinear operator that combines the
+          nonlienar and jacobian operators
+    """
+    # make nonlinear parameter conversion op
+    _param_convert_comb_op = Operator.NonLinearOperator(
+        self._param_convert_nl_op, self._param_convert_jac_op,
+        self._param_convert_jac_op.setBackground)
+
+    # make and set gpu operator
+    _wave_comb_op = Operator.NonLinearOperator(self._wave_nl_op,
+                                               self._wave_jac_op,
+                                               self._wave_jac_op.set_background)
 
     # append wavefield sampling to gpu operator
-    _operator = self._setup_wavefield_sampling_operator(
-        _operator, self.recording_components, data_sep)
+    _wavefield_sampling_comb_op = Operator.NonLinearOperator(
+        self._wavefield_sampling_nl_op, self._wavefield_sampling_jac_op)
 
-    return _operator
+    # append operators
+    _comb_op = Operator.CombNonlinearOp(_param_convert_comb_op, _wave_comb_op)
+    _comb_op = Operator.CombNonlinearOp(_comb_op, _wavefield_sampling_comb_op)
+
+    return _comb_op
 
   def _get_free_surface_pad_minus(self) -> int:
     """Abstract helper function to get the amount of padding to add to the free surface

@@ -158,15 +158,11 @@ class AcousticIsotropic(wave_equation.WaveEquation):
 
     return data_sep
 
-  def _setup_operators(
+  def _setup_nonlinear_operator(
       self, data_sep: SepVector.floatVector, model_sep: SepVector.floatVector,
       sep_par: genericIO.io, src_devices: List, rec_devices: List,
-      wavelet_nl_sep: SepVector.floatVector,
-      wavelet_lin_sep: SepVector.floatVector) -> Operator.NonLinearOperator:
-    """Helper function to set up all operators needed for wave prop
-    
-    For the acoustic wave prop this consists of the nonlinear and jacobian
-    wave prop operators combined into one nonlinear operator.
+      wavelet_nl_sep: SepVector.floatVector) -> Operator.Operator:
+    """Helper function to set up the nonlinear operator
     
     nonlinear: f(m) = d
     jacobian: Fm = d 
@@ -183,11 +179,41 @@ class AcousticIsotropic(wave_equation.WaveEquation):
           prop in SepVector format
 
     Returns:
-        Operator.NonLinearOperator: all combined operators
+        Operator.Operator: all combined operators
     """
     # make and set gpu operator
     return self._setup_nl_wave_op(data_sep, model_sep, sep_par, src_devices,
                                   rec_devices, wavelet_nl_sep)
+
+  def _setup_jacobian_operator(
+      self, data_sep: SepVector.floatVector, model_sep: SepVector.floatVector,
+      sep_par: genericIO.io, src_devices: List, rec_devices: List,
+      wavelet_lin_sep: SepVector.floatVector) -> Operator.Operator:
+    """Helper function to set up the jacobian operator
+    
+    Args:
+        data_sep (SepVector.floatVector): data space in SepVector format
+        model_sep (SepVector.floatVector): model space in SepVector format
+        sep_par (genericIO.io): io object containing all fd_params
+        src_devices (List): list of pybind11 source device classes
+        rec_devices (List): list of pybind11 receiver device classes
+        wavelet_lin_sep (SepVector.floatVector): the wavelets for linear wave prop
+        
+    Returns:
+        Operator.Operator: all combined operators
+    """
+    return self._setup_jac_wave_op(data_sep, model_sep, sep_par, src_devices,
+                                   rec_devices, wavelet_lin_sep)
+
+  def _combine_nl_and_jac_operators(self) -> Operator.NonLinearOperator:
+    """Combine the nonlinear and jacobian operators into one nonlinear operator
+
+    Returns:
+        Operator.NonlinearOperator: a nonlinear operator that combines the
+          nonlienar and jacobian operators
+    """
+    return Operator.NonLinearOperator(self._nl_operator, self._jac_operator,
+                                      self._jac_operator.set_background)
 
   def _get_free_surface_pad_minus(self) -> int:
     """Abstract helper function to get the amount of padding to add to the free surface

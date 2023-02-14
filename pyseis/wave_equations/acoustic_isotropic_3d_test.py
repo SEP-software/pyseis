@@ -487,8 +487,8 @@ def test_pad_model(vp_model_half_space):
 #### AcousticIsotropic3D Born tests ###########
 ###############################################
 @pytest.mark.gpu
-def test_init_jacobian(ricker_wavelet, fixed_rec_locations, src_locations,
-                       vp_model_half_space):
+def test_jacobian_none_on_init(ricker_wavelet, fixed_rec_locations,
+                               src_locations, vp_model_half_space):
   # setup
   acoustic_3d = acoustic_isotropic.AcousticIsotropic3D(
       model=vp_model_half_space,
@@ -500,15 +500,8 @@ def test_init_jacobian(ricker_wavelet, fixed_rec_locations, src_locations,
       rec_locations=fixed_rec_locations,
       gpus=I_GPUS)
 
-  #assert
-  # assert acoustic_3d._jac_wave_op == None
-
-  # # act
-  # acoustic_3d._setup_jac_wave_op()
-
   # assert
-  assert isinstance(acoustic_3d._operator.lin_op,
-                    wave_equation._JacobianWaveCppOp)
+  assert acoustic_3d._jac_operator == None
 
 
 @pytest.mark.gpu
@@ -581,3 +574,24 @@ def test_jacobian_dot_product(ricker_wavelet, fixed_rec_locations,
 
   #assert
   acoustic_3d.dot_product_test(True)
+
+
+def test_setup_fwi_operators(ricker_wavelet, fixed_rec_locations, src_locations,
+                             vp_model_half_space):
+  # setup
+  acoustic_3d = acoustic_isotropic.AcousticIsotropic3D(
+      model=vp_model_half_space,
+      model_sampling=(D_Y, D_X, D_Z),
+      model_padding=(N_Y_PAD, N_X_PAD, N_Z_PAD),
+      wavelet=ricker_wavelet,
+      d_t=D_T,
+      src_locations=src_locations,
+      rec_locations=fixed_rec_locations,
+      gpus=I_GPUS)
+
+  # act
+  fwi_op = acoustic_3d._setup_fwi_op()
+
+  # Assert
+  assert isinstance(fwi_op.lin_op, wave_equation._JacobianWaveCppOp)
+  assert isinstance(fwi_op.nl_op, wave_equation._NonlinearWaveCppOp)

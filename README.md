@@ -18,7 +18,7 @@ Why it’s useful:
 * [Docker](https://docs.docker.com/engine/install/)
 
 ## Getting started
-1. clone the repo.<br>
+1. clone the repo.
 ```console
 git clone http://cees-gitlab.stanford.edu/sfarris/pyseis.git && cd pyseis
 ```

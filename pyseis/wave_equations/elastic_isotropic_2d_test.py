@@ -456,8 +456,8 @@ def test_pad_model(vp_vs_rho_model_2d):
 #### ElasticIsotropic2D Born tests ###########
 ###############################################
 @pytest.mark.gpu
-def test_init_jacobian(ricker_wavelet, fixed_rec_locations, src_locations,
-                       vp_vs_rho_model_2d):
+def test_jacobian_none_on_init(ricker_wavelet, fixed_rec_locations,
+                               src_locations, vp_vs_rho_model_2d):
   # Arrange and act
   elastic_2d = elastic_isotropic.ElasticIsotropic2D(
       model=vp_vs_rho_model_2d,
@@ -469,8 +469,7 @@ def test_init_jacobian(ricker_wavelet, fixed_rec_locations, src_locations,
       rec_locations=fixed_rec_locations,
       gpus=I_GPUS)
   # assert
-  assert isinstance(elastic_2d._operator.lin_op.args[1].args[0],
-                    wave_equation._JacobianWaveCppOp)
+  assert elastic_2d._jac_operator == None
 
 
 @pytest.mark.gpu
@@ -486,6 +485,33 @@ def test_jacobian(ricker_wavelet, fixed_rec_locations, src_locations,
       src_locations=src_locations,
       rec_locations=fixed_rec_locations,
       gpus=I_GPUS)
+  #reflectivity model
+  lin_model = np.gradient(vp_vs_rho_model_2d, axis=-1)
+
+  # act
+  lin_data = elastic_2d.jacobian(lin_model)
+
+  # Assert
+  assert lin_data.shape == (N_SRCS, N_WFLD_COMPONENTS, N_REC, N_T)
+  assert not np.all((lin_data == 0))
+  assert not np.any(np.isnan(lin_data))
+
+
+@pytest.mark.gpu
+def test_jacobian_after_forward(ricker_wavelet, fixed_rec_locations,
+                                src_locations, vp_vs_rho_model_2d):
+  # Arrange
+  elastic_2d = elastic_isotropic.ElasticIsotropic2D(
+      model=vp_vs_rho_model_2d,
+      model_sampling=(D_X, D_Z),
+      model_padding=(N_X_PAD, N_Z_PAD),
+      wavelet=ricker_wavelet,
+      d_t=D_T,
+      src_locations=src_locations,
+      rec_locations=fixed_rec_locations,
+      gpus=I_GPUS)
+  #run forward
+  data = elastic_2d.forward(vp_vs_rho_model_2d)
   #reflectivity model
   lin_model = np.gradient(vp_vs_rho_model_2d, axis=-1)
 
@@ -647,3 +673,32 @@ def test_jacobian_dot_product_pressure_recording_components(
 
   #assert
   elastic_2d.dot_product_test(True)
+
+
+@pytest.mark.gpu
+def test_setup_fwi_operators(ricker_wavelet, fixed_rec_locations, src_locations,
+                             vp_vs_rho_model_2d):
+  # Arrange
+  recording_components = ['p']
+  vp_vs_rho_model_2d_smooth = np.ones_like(vp_vs_rho_model_2d)
+  vp_vs_rho_model_2d_smooth[:] = vp_vs_rho_model_2d
+  vp_vs_rho_model_2d_smooth[0] = V_P1
+  elastic_2d = elastic_isotropic.ElasticIsotropic2D(
+      model=vp_vs_rho_model_2d_smooth,
+      model_sampling=(D_X, D_Z),
+      model_padding=(N_X_PAD, N_Z_PAD),
+      wavelet=ricker_wavelet,
+      d_t=D_T,
+      src_locations=src_locations,
+      rec_locations=fixed_rec_locations,
+      gpus=I_GPUS,
+      recording_components=recording_components)
+
+  # Act
+  fwi_op = elastic_2d._setup_fwi_op()
+
+  # Assert
+  assert isinstance(fwi_op.lin_op.args[1].args[0],
+                    wave_equation._JacobianWaveCppOp)
+  assert isinstance(fwi_op.nl_op.args[1].args[0],
+                    wave_equation._NonlinearWaveCppOp)

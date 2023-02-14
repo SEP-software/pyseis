@@ -502,8 +502,8 @@ def test_pad_model(vp_vs_rho_model_3d):
 #### ElasticIsotropic3D Born tests ###########
 ###############################################
 @pytest.mark.gpu
-def test_init_jacobian(trapezoid_wavelet, fixed_rec_locations, src_locations,
-                       vp_vs_rho_model_3d):
+def test_jacobian_none_on_init(trapezoid_wavelet, fixed_rec_locations,
+                               src_locations, vp_vs_rho_model_3d):
 
   # Arrange and act
   elastic_3d = elastic_isotropic.ElasticIsotropic3D(
@@ -517,8 +517,7 @@ def test_init_jacobian(trapezoid_wavelet, fixed_rec_locations, src_locations,
       gpus=I_GPUS)
 
   # assert
-  assert isinstance(elastic_3d._operator.lin_op.args[1].args[0],
-                    wave_equation._JacobianWaveCppOp)
+  assert elastic_3d._jac_operator == None
 
 
 @pytest.mark.gpu
@@ -702,3 +701,30 @@ def test_jacobian_dot_product_pressure_recording_components(
 
   #assert
   elastic_3d.dot_product_test(True)
+
+
+@pytest.mark.gpu
+def test_setup_fwi_operators(trapezoid_wavelet, fixed_rec_locations,
+                             src_locations, vp_vs_rho_model_3d):
+  # Arrange
+  recording_components = ['p']
+  vp_vs_rho_model_3d[..., N_Z // 2:] *= 1.5
+  elastic_3d = elastic_isotropic.ElasticIsotropic3D(
+      model=vp_vs_rho_model_3d,
+      model_sampling=(D_Y, D_X, D_Z),
+      model_padding=(N_Y_PAD, N_X_PAD, N_Z_PAD),
+      wavelet=trapezoid_wavelet,
+      d_t=D_T,
+      src_locations=src_locations,
+      rec_locations=fixed_rec_locations,
+      gpus=I_GPUS,
+      recording_components=recording_components)
+
+  # Act
+  fwi_op = elastic_3d._setup_fwi_op()
+
+  # Assert
+  assert isinstance(fwi_op.lin_op.args[1].args[0],
+                    wave_equation._JacobianWaveCppOp)
+  assert isinstance(fwi_op.nl_op.args[1].args[0],
+                    wave_equation._NonlinearWaveCppOp)

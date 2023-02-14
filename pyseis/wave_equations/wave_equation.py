@@ -139,7 +139,9 @@ class WaveEquation(abc.ABC):
         'mod_par': 1,
         'free_surface': int(free_surface)
     }
-    self._operator = None
+    self._nl_operator = None
+    self._jac_operator = None
+    self._fwi_operator = None
 
     self._make(model, wavelet, d_t, src_locations, rec_locations, gpus,
                model_padding, model_origins, model_sampling, subsampling,
@@ -261,14 +263,18 @@ class WaveEquation(abc.ABC):
     # make and set sep par
     self.sep_param = self._setup_sep_par(self.fd_param)
 
-    # make operator
-    self._operator = self._setup_operators(self.data_sep, self.model_sep,
-                                           self.sep_param, self.src_devices,
-                                           self.rec_devices,
-                                           self.wavelet_nl_sep,
-                                           self.wavelet_lin_sep)
+    # make nonlinear operator
+    # self._operator = self._setup_operators(self.data_sep, self.model_sep,
+    #                                        self.sep_param, self.src_devices,
+    #                                        self.rec_devices,
+    #                                        self.wavelet_nl_sep,
+    #                                        self.wavelet_lin_sep)
 
-    self.data_sep = self._operator.range.clone()
+    self._nl_operator = self._setup_nonlinear_operator(
+        self.data_sep, self.model_sep, self.sep_param, self.src_devices,
+        self.rec_devices, self.wavelet_nl_sep)
+
+    self.data_sep = self._nl_operator.range.clone()
 
   def forward(self, model: np.ndarray) -> np.ndarray:
     """Run the nonlinear, forward wave equation.
@@ -282,7 +288,7 @@ class WaveEquation(abc.ABC):
         np.ndarray: seismic wavefield sampled at receivers
     """
     self._set_model(model)
-    self._operator.nl_op.forward(0, self.model_sep, self.data_sep)
+    self._nl_operator.forward(0, self.model_sep, self.data_sep)
     return np.copy(self.data_sep.getNdArray())
 
   def jacobian(self,
@@ -302,11 +308,16 @@ class WaveEquation(abc.ABC):
     Returns:
         np.ndarray: linear data recorded at receiver locations.
     """
+    if self._jac_operator is None:
+      self._jac_operator = self._setup_jacobian_operator(
+          self._setup_data(self.fd_param['n_t'], self.fd_param['d_t']),
+          self.model_sep, self.sep_param, self.src_devices, self.rec_devices,
+          self.wavelet_lin_sep)
     self._set_lin_model(lin_model)
     if background_model is not None:
       self._set_background_model(background_model)
 
-    self._operator.lin_op.forward(0, self.lin_model_sep, self.data_sep)
+    self._jac_operator.forward(0, self.lin_model_sep, self.data_sep)
     return np.copy(self.data_sep.getNdArray())
 
   def jacobian_adjoint(self,
@@ -326,11 +337,17 @@ class WaveEquation(abc.ABC):
         np.ndarray: linear model, zero lag cross correlation of receiver and
           source wavefields. 
     """
+    if self._jac_operator is None:
+      self._jac_operator = self._setup_jacobian_operator(
+          self._setup_data(self.fd_param['n_t'], self.fd_param['d_t']),
+          self.model_sep, self.sep_param, self.src_devices, self.rec_devices,
+          self.wavelet_lin_sep)
+
     self._set_data(lin_data)
     if background_model is not None:
       self._set_background_model(background_model)
 
-    self._operator.lin_op.adjoint(0, self.lin_model_sep, self.data_sep)
+    self._jac_operator.adjoint(0, self.lin_model_sep, self.data_sep)
     return np.copy(self._truncate_model(self.lin_model_sep.getNdArray()))
 
   def dot_product_test(self,
@@ -345,8 +362,14 @@ class WaveEquation(abc.ABC):
     Returns:
         bool: whether test passes or not
     """
+    if self._jac_operator is None:
+      self._jac_operator = self._setup_jacobian_operator(
+          self._setup_data(self.fd_param['n_t'], self.fd_param['d_t']),
+          self.model_sep, self.sep_param, self.src_devices, self.rec_devices,
+          self.wavelet_lin_sep)
+
     with ostream_redirect():
-      return self._operator.lin_op.dotTest(verb, tolerance)
+      return self._jac_operator.dotTest(verb, tolerance)
 
   def _setup_model(
       self,
@@ -813,37 +836,6 @@ class WaveEquation(abc.ABC):
     raise NotImplementedError(
         '_get_velocities not overwritten by WaveEquation child class')
 
-  @abc.abstractmethod
-  def _setup_operators(
-      self, data_sep: SepVector.floatVector, model_sep: SepVector.floatVector,
-      sep_par: genericIO.io, src_devices: List, rec_devices: List,
-      wavelet_nl_sep: SepVector.floatVector,
-      wavelet_lin_sep: SepVector.floatVector) -> Operator.NonLinearOperator:
-    """Abstract helper function to set up all operators needed for wave prop
-    
-    Combines all operators needed for wave prop into one. Abstract because
-    elastic and acoustic require difference operators.
-
-    Args:
-        data_sep (SepVector.floatVector): data space in SepVector format
-        model_sep (SepVector.floatVector): model space in SepVector format
-        sep_par (genericIO.io): io object containing all fd_params
-        src_devices (List): list of pybind11 source device classes
-        rec_devices (List): list of pybind11 receiver device classes
-        wavelet_nl_sep (SepVector.floatVector): the wavelet for nonlinear wave
-          prop in SepVector format
-        wavelet_lin_sep (SepVector.floatVector): the wavelets for linear wave
-          prop in SepVector format
-
-    Raises:
-        NotImplementedError: if not implemented by child class
-
-    Returns:
-        Operator.NonLinearOperator: all combined operators
-    """
-    raise NotImplementedError(
-        '_setup_operators not overwritten by WaveEquation child class')
-
   def _make_sep_par(self, param_dict: dict) -> genericIO.io:
     """Helper function to set turn a dictionary of kwargs into a genericIO par 
     object needed for wave prop
@@ -865,8 +857,8 @@ class WaveEquation(abc.ABC):
   def _setup_nl_wave_op(
       self, data_sep: SepVector.floatVector, model_sep: SepVector.floatVector,
       sep_par: genericIO.io, src_devices: List, rec_devices: List,
-      wavelet_nl_sep: SepVector.floatVector) -> Operator.NonLinearOperator:
-    """Helper function to create the nonlinear wave equation operator.
+      wavelet_nl_sep: SepVector.floatVector) -> Operator.Operator:
+    """Helper function to create the nonlinear wave prop operator.
 
     Args:
         data_sep (SepVector.floatVector): data space in SepVector format.
@@ -879,17 +871,102 @@ class WaveEquation(abc.ABC):
     Returns:
         Operator.NonLinearOperator: nonlinear operator
     """
-    _nl_wave_op = _NonlinearWaveCppOp(model_sep, data_sep, sep_par, src_devices,
-                                      rec_devices, wavelet_nl_sep,
-                                      self._nl_wave_pybind_class)
+    return _NonlinearWaveCppOp(model_sep, data_sep, sep_par, src_devices,
+                               rec_devices, wavelet_nl_sep,
+                               self._nl_wave_pybind_class)
+
+  def _setup_jac_wave_op(
+      self, data_sep: SepVector.floatVector, model_sep: SepVector.floatVector,
+      sep_par: genericIO.io, src_devices: List, rec_devices: List,
+      wavelet_lin_sep: SepVector.floatVector) -> Operator.Operator:
+    """Helper function to create the jacobian wave prop operator.
+
+    Args:
+        data_sep (SepVector.floatVector): data space in SepVector format.
+        model_sep (SepVector.floatVector): model space in SepVector format.
+        sep_par (genericIO.io): io object
+        src_devices (List): source devices
+        rec_devices (List): receiver devices
+        wavelet_lin_sep (SepVector.floatVector): linear wavelet
+    """
     self.lin_model_sep = self.model_sep.clone()
-    _jac_wave_op = _JacobianWaveCppOp(self.lin_model_sep, self.data_sep,
-                                      self.model_sep, self.sep_param,
-                                      self.src_devices, self.rec_devices,
-                                      self.wavelet_lin_sep,
-                                      self._jac_wave_pybind_class)
-    return Operator.NonLinearOperator(_nl_wave_op, _jac_wave_op,
-                                      _jac_wave_op.set_background)
+    return _JacobianWaveCppOp(self.lin_model_sep, data_sep, model_sep, sep_par,
+                              src_devices, rec_devices, wavelet_lin_sep,
+                              self._jac_wave_pybind_class)
+
+  def _setup_fwi_op(self):
+    """creates an operator that can be used with FWI.
+
+    Returns:
+        Operator.NonlinearOperator: a nonliner operator that has the nonlinear
+          and jacobian operators combined
+    """
+    if self._jac_operator is None:
+      self._jac_operator = self._setup_jacobian_operator(
+          self._setup_data(self.fd_param['n_t'], self.fd_param['d_t']),
+          self.model_sep, self.sep_param, self.src_devices, self.rec_devices,
+          self.wavelet_lin_sep)
+
+    return self._combine_nl_and_jac_operators()
+
+  @abc.abstractmethod
+  def _setup_nonlinear_operator(
+      self, data_sep: SepVector.floatVector, model_sep: SepVector.floatVector,
+      sep_par: genericIO.io, src_devices: List, rec_devices: List,
+      wavelet_nl_sep: SepVector.floatVector) -> Operator.Operator:
+    """Helper function to set up the nonlinear operators
+    
+    nonlinear: f(m) = d
+    jacobian: Fm = d 
+
+    Args:
+        data_sep (SepVector.floatVector): data space in SepVector format
+        model_sep (SepVector.floatVector): model space in SepVector format
+        sep_par (genericIO.io): io object containing all fd_params
+        src_devices (List): list of pybind11 source device classes
+        rec_devices (List): list of pybind11 receiver device classes
+        wavelet_nl_sep (SepVector.floatVector): the wavelet for nonlinear wave
+          prop in SepVector format
+        wavelet_lin_sep (SepVector.floatVector): the wavelets for linear wave
+          prop in SepVector format
+
+    Returns:
+        Operator.Operator: all combined operators
+    """
+    raise NotImplementedError(
+        '_setup_nonlinear_operator not overwritten by WaveEquation child class')
+
+  @abc.abstractmethod
+  def _setup_jacobian_operator(
+      self, data_sep: SepVector.floatVector, model_sep: SepVector.floatVector,
+      sep_par: genericIO.io, src_devices: List, rec_devices: List,
+      wavelet_lin_sep: SepVector.floatVector) -> Operator.Operator:
+    """Helper function to set up the jacobian operator
+    
+    Args:
+        data_sep (SepVector.floatVector): data space in SepVector format
+        model_sep (SepVector.floatVector): model space in SepVector format
+        sep_par (genericIO.io): io object containing all fd_params
+        src_devices (List): list of pybind11 source device classes
+        rec_devices (List): list of pybind11 receiver device classes
+        wavelet_lin_sep (SepVector.floatVector): the wavelets for linear wave prop
+        
+    Returns:
+        Operator.Operator: all combined operators
+    """
+    raise NotImplementedError(
+        '_setup_nonlinear_operator not overwritten by WaveEquation child class')
+
+  @abc.abstractmethod
+  def _combine_nl_and_jac_operators(self) -> Operator.NonLinearOperator:
+    """Combine the nonlinear and jacobian operators into one nonlinear operator
+
+    Returns:
+        Operator.NonlinearOperator: a nonlinear operator that combines the
+          nonlienar and jacobian operators
+    """
+    raise NotImplementedError(
+        '_setup_nonlinear_operator not overwritten by WaveEquation child class')
 
   def _set_lin_model(self, lin_model: np.ndarray) -> None:
     """Helper function to set the SepVector linear model space.
@@ -915,7 +992,7 @@ class WaveEquation(abc.ABC):
                                        self._FAT)
     background_model_sep = self.model_sep.clone()
     background_model_sep.getNdArray()[:] = background_model
-    self._operator.lin_op.set_background(background_model_sep)
+    self._jac_operator.set_background(background_model_sep)
 
   def _set_data(self, data: np.ndarray) -> None:
     """Helper function to set the SepVector data space

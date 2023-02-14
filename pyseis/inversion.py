@@ -108,6 +108,9 @@ class Fwi():
           f"The provided starting_model will cause dispersion because the minumum velocity value is too low. Given the current max frequency in the source wavelet, {wave_eq_solver.fd_param['f_max']}Hz, and max spatial sampling, {max(wave_eq_solver.model_sampling)}m, the minimum allowed velocity is {min_vel} m/s"
       )
 
+    # setup fwi operator
+    if wave_eq_solver._fwi_operator is None:
+      wave_eq_solver._fwi_operator = wave_eq_solver._setup_fwi_op()
     self.wave_eq_solver = wave_eq_solver
 
     # add gradient mask operator
@@ -169,8 +172,8 @@ class Fwi():
     grad_mask_op = Operator.DiagonalOp(gradient_mask_sep)
 
     # combine linlinaer operators
-    wave_eq_solver._operator.lin_op = Operator.ChainOperator(
-        grad_mask_op, wave_eq_solver._operator.lin_op)
+    wave_eq_solver._fwi_operator.lin_op = Operator.ChainOperator(
+        grad_mask_op, wave_eq_solver._fwi_operator.lin_op)
 
     return wave_eq_solver
 
@@ -195,7 +198,7 @@ class Fwi():
 
     return Prblm.ProblemL2NonLinear(wave_eq_solver.model_sep,
                                     wave_eq_solver.data_sep,
-                                    wave_eq_solver._operator,
+                                    wave_eq_solver._fwi_operator,
                                     minBound=min_bound,
                                     maxBound=max_bound)
 
