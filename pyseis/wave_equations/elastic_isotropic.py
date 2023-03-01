@@ -288,10 +288,10 @@ class ElasticIsotropic(wave_equation.WaveEquation):
     # setup model sampling operator
     self._param_convert_nl_op = self._nl_elastic_param_conv_class(model_sep, 1)
     tmp_model = model_sep.clone()
-    self._param_convert_nl_op.forward(0, tmp_model, model_sep)
+    self._param_convert_nl_op.forward(0, model_sep, tmp_model)
 
     # make and set gpu operator
-    self._wave_nl_op = self._setup_nl_wave_op(data_sep, model_sep, sep_par,
+    self._wave_nl_op = self._setup_nl_wave_op(data_sep, tmp_model, sep_par,
                                               src_devices, rec_devices,
                                               wavelet_nl_sep)
 
@@ -585,7 +585,8 @@ class ElasticIsotropic2D(ElasticIsotropic):
     x_pad_plus = self.fd_param['x_pad_plus'] + self._FAT
     z_pad = self.fd_param['z_pad_minus'] + self._FAT
     z_pad_plus = self.fd_param['z_pad_plus'] + self._FAT
-    return model[:, x_pad:-x_pad_plus:, z_pad:-z_pad_plus:]
+
+    return model[..., x_pad:-x_pad_plus:, z_pad:-z_pad_plus:]
 
 
 class ElasticIsotropic3D(ElasticIsotropic):
@@ -817,7 +818,7 @@ class ElasticIsotropic3D(ElasticIsotropic):
     x_pad_plus = self.fd_param['x_pad_plus'] + self._FAT
     z_pad = self.fd_param['z_pad_minus'] + self._FAT
     z_pad_plus = self.fd_param['z_pad_plus'] + self._FAT
-    return model[:, y_pad:-y_pad:, x_pad:-x_pad_plus:, z_pad:-z_pad_plus:]
+    return model[..., y_pad:-y_pad:, x_pad:-x_pad_plus:, z_pad:-z_pad_plus:]
 
 
 def convert_to_lame(model):
