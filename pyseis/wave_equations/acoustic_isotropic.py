@@ -261,7 +261,10 @@ class AcousticIsotropic2D(AcousticIsotropic):
     x_pad_plus = self.fd_param['x_pad_plus'] + self._FAT
     z_pad = self.fd_param['z_pad_minus'] + self._FAT
     z_pad_plus = self.fd_param['z_pad_plus'] + self._FAT
-    return model[x_pad:-x_pad_plus:, z_pad:-z_pad_plus:]
+    if model.ndim > 2:
+      return model[..., x_pad:-x_pad_plus, z_pad:-z_pad_plus]
+    else:
+      return model[x_pad:-x_pad_plus, z_pad:-z_pad_plus]
 
   """
   src_locations - [n_src,(x_pos,z_pos)]
@@ -429,7 +432,10 @@ class AcousticIsotropic3D(AcousticIsotropic):
     x_pad_plus = self.fd_param['x_pad_plus'] + self._FAT
     z_pad = self.fd_param['z_pad_minus'] + self._FAT
     z_pad_plus = self.fd_param['z_pad_plus'] + self._FAT
-    return model[y_pad:-y_pad:, x_pad:-x_pad_plus:, z_pad:-z_pad_plus:]
+    if model.ndim > 3:
+      return model[..., y_pad:-y_pad:, x_pad:-x_pad_plus:, z_pad:-z_pad_plus:]
+    else:
+      return model[y_pad:-y_pad:, x_pad:-x_pad_plus:, z_pad:-z_pad_plus:]
 
   def _setup_src_devices(self, src_locations, n_t):
     """Helper function to setup source devices needed for wave prop.
