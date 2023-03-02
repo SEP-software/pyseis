@@ -334,18 +334,19 @@ class Lsrtm(WaveEquationInversion):
     Parameters:
         wave_eq_solver (wave_equation.WaveEquation): the wave equation solver
         linear_data (np.ndarray): seimic data to be inverted
-        migration_model (np.ndarray): the background velocity model around which the wave equation is linearized
+        migration_model (np.ndarray): the background velocity model around which
+          the wave equation is linearized
         num_iter (int): number of inversion iterations
         starting_model (np.ndarray, optional): starting image. Defaults to None.
         solver_type (str, optional): type of inversion solver. Defaults to 'cg'.
-        work_dir (str, optional): working directory where history of the inversion
-          is saved. Defaults to './wrk'.
-        prefix (str, optional): prefix for saving history in the working directory.
-          Defaults to None.
+        work_dir (str, optional): working directory where history of the
+          inversion is saved. Defaults to './wrk'.
+        prefix (str, optional): prefix for saving history in the working
+          directory. Defaults to None.
         iterations_per_save (int, optional): Number of iterations to save.
           Defaults to 10.
-        iterations_in_buffer (int, optional): Number of iterations to store in buffer.
-          Defaults to 3.
+        iterations_in_buffer (int, optional): Number of iterations to store in
+          memory buffer. Defaults to 3.
         gradient_mask: (np.ndarry, optional): Multiplied with gradient of FWI
           before computing step size. Must be the shape of wave_eq_solver model
           space (which is also the same shape as the starting_model).
@@ -418,14 +419,13 @@ class Fwi(WaveEquationInversion):
       max_steps (int, optional): maximum number of steps to take. Defaults to
         None.
       work_dir (str, optional): working directory where history of the inversion
-        is saved.
-        Defaults to 'wrk'.
-      prefix (str, optional): prefix for saving history in the working directory.
-        Defaults to None.
+        is saved. Defaults to 'wrk'.
+      prefix (str, optional): prefix for saving history in the working
+        directory. Defaults to None.
       iterations_per_save (int, optional): Number of iterations to save.
         Defaults to 10.
-      iterations_in_buffer (int, optional): Number of iterations to store in buffer.
-        Defaults to 3.
+      iterations_in_buffer (int, optional): Number of iterations to store in
+        memory buffer. Defaults to 3.
       gradient_mask: (np.ndarry, optional): Multiplied with gradient of FWI
         before computing step size. Must be the shape of wave_eq_solver model
         space (which is also the same shape as the starting_model).
