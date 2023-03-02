@@ -1,6 +1,7 @@
 from mock import patch
 import pytest
 import numpy as np
+from scipy import ndimage
 from pyseis.wave_equations import acoustic_isotropic
 from pyseis.wavelets.acoustic import Acoustic2D
 from pyseis import inversion
@@ -22,10 +23,10 @@ DELAY = 2.0
 DOM_FREQ = 5.0
 CONFIG_RICKER = {'delay': DELAY, 'dom_freq': DOM_FREQ}
 
-N_SRCS = 4
+N_SRCS = 8
 Z_SHOT = 10.0
-N_REC = 10
-D_X_REC = 11.0
+N_REC = 100
+D_X_REC = 10.0
 Z_REC = 5.0
 #expected values
 SUB = 3
@@ -117,9 +118,8 @@ def test_run_fwi(acoustic_2d_weq_solver, vp_model_half_space,
   fwi_prob = inversion.Fwi(wave_eq_solver=acoustic_2d_weq_solver,
                            obs_data=obs_data,
                            starting_model=vp_model_full_space,
-                           num_iter=3,
+                           num_iter=2,
                            solver_type='nlcg',
-                           model_bounds=[1300, 4500],
                            iterations_per_save=1,
                            work_dir=tmp_path)
 
@@ -130,3 +130,59 @@ def test_run_fwi(acoustic_2d_weq_solver, vp_model_half_space,
   all_keys = ['inv_mod', 'gradient', 'model', 'residual', 'obj']
   for key in all_keys:
     assert history[key] is not None
+
+  assert np.any(history['gradient'])
+
+
+@pytest.mark.gpu
+def test_fwi_with_grad_mask(acoustic_2d_weq_solver, vp_model_half_space,
+                            vp_model_full_space, tmp_path):
+  # Arrange
+  gradient_mask = np.zeros_like(vp_model_full_space)
+  obs_data = acoustic_2d_weq_solver.forward(vp_model_half_space)
+  fwi_prob = inversion.Fwi(wave_eq_solver=acoustic_2d_weq_solver,
+                           obs_data=obs_data,
+                           starting_model=vp_model_full_space,
+                           num_iter=2,
+                           solver_type='nlcg',
+                           iterations_per_save=1,
+                           work_dir=tmp_path,
+                           gradient_mask=gradient_mask)
+  # Run
+  history = fwi_prob.run()
+
+  # FWI with a gradient mask of zeros will not change the model
+  assert np.allclose(vp_model_full_space, history['inv_mod'])
+
+
+@pytest.mark.gpu
+def test_init_lsrtm(acoustic_2d_weq_solver, vp_model_full_space, tmp_path):
+  # Arrange
+  obs_data = np.zeros_like(acoustic_2d_weq_solver.data_sep.getNdArray())
+
+  # Run
+  lsrtm_prob = inversion.Lsrtm(wave_eq_solver=acoustic_2d_weq_solver,
+                               linear_data=obs_data,
+                               migration_model=vp_model_full_space,
+                               num_iter=3,
+                               work_dir=tmp_path)
+
+
+@pytest.mark.gpu
+def test_run_lsrtm(acoustic_2d_weq_solver, vp_model_half_space, tmp_path):
+  # Arrange
+  # make linear model
+  lin_model = np.gradient(vp_model_half_space, axis=-1)
+  # make migration velocity
+  mig_vel = ndimage.gaussian_filter(vp_model_half_space, sigma=10)
+  # make linear data
+  lin_data = acoustic_2d_weq_solver.jacobian(lin_model, mig_vel)
+
+  # Run
+  lsrtm_prob = inversion.Lsrtm(wave_eq_solver=acoustic_2d_weq_solver,
+                               linear_data=lin_data,
+                               migration_model=mig_vel,
+                               num_iter=3,
+                               work_dir=tmp_path)
+  # Run
+  history = lsrtm_prob.run()

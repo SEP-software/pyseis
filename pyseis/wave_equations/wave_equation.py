@@ -367,6 +367,7 @@ class WaveEquation(abc.ABC):
           self._setup_data(self.fd_param['n_t'], self.fd_param['d_t']),
           self.model_sep, self.sep_param, self.src_devices, self.rec_devices,
           self.wavelet_lin_sep)
+      # self._jac_operator = self._setup_jacobian_operator()
 
     with ostream_redirect():
       return self._jac_operator.dotTest(verb, tolerance)

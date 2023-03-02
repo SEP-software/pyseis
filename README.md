@@ -32,3 +32,9 @@ sudo docker run -p 7001:7001 \
   sfarris1994/pyseis:stable jupyter-lab --no-browser --port=7001 --ip 0.0.0.0
 ```
 3. Navigate to the jupyterlab at `http://127.0.0.1:7001` in your browser.
+
+## About the repo
+* This goal of this repository is to make wave equation modeling, imaging, and inversion more accesible for researchers.
+* Authors for this repository: [Stuart Farris](https://www.linkedin.com/in/stuart-farris/) (sfarris@sep.stanford.edu), [Guillaume Barnier](https://gbarnier.github.io) (barnier@gmail.com), and [Ettore Biondi](https://www.linkedin.com/in/ettore-biondi/) (ebiondi@caltech.edu). 
+* Date: 03/02/2023
+* Feel free to contact us for any questions or bugs to report
