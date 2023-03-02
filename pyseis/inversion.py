@@ -1,20 +1,21 @@
 """
-This module provides the Fwi class for running Full Waveform Inversion (FWI)
+This module provides wave equation based inversion classes.
 
 Can be used with wave equation solvers provided in the pyseis python package
-which currently include the acoustic,constant density, isotrpoic wave equation
+which currently include the acoustic, constant density, isotropic wave equation
 and the elastic, isotropic wave equation, both two and three dimensions. In
-other words, the Fwi class can be used to solve acoustic or elastic FWI in 2D
-and 3D. This module also includes several sub-modules such as pyProblem,
-pyStepper, pyStopper, pyOperator, pyNonLinearSolver, and genericIO which are
-taken from Ettore Biondi's python-solver module. The Fwi class allows to
-inversions to be run with various solvers and steppers.
+other words, the classes can be used to solve acoustic or elastic waveform
+inversions in 2D and 3D. This module also includes several sub-modules such as
+pyProblem, pyStepper, pyStopper, pyOperator, pyNonLinearSolver, and genericIO
+which are taken from Ettore Biondi's python-solver module. Inversions can be run
+with various inversion solvers and steppers.
 """
-from datetime import datetime
 import pathlib
 import os
 import sys_util
 import numpy as np
+
+from datetime import datetime
 from typing import Callable, List, Tuple
 
 import pyProblem as Prblm
@@ -25,6 +26,7 @@ import pyNonLinearSolver
 import pyLinearSolver
 import genericIO
 import SepVector
+
 from pyseis.wave_equations import wave_equation
 
 SOLVERS = {
@@ -60,6 +62,30 @@ class WaveEquationInversion():
                prefix: str = None,
                iterations_per_save: int = 10,
                iterations_in_buffer: int = 3) -> None:
+    """Abstract constructor for wave equation based inversions.
+
+    Parameters:
+      wave_eq_solver (wave_equation.WaveEquatio): the wave equation solver. See
+        pyseis/wave_equations.
+      seismic_data (numpy.ndarray): seismic data to be used in inversion.
+      earth_model (numpy.ndarray): earth model to be in wave prop
+      num_iter (int): number of iterations
+      solver_type (str, optional): solver to use, options are 'nlcg', 'lbfgs',
+        or 'lbfgsb'. Defaults to 'nlcg'. 
+      stepper_type (str, optional): stepper to use options are 'parabolic',
+        'linear', 'parabolicNew'. Defaults to 'parabolic'.
+      max_steps (int, optional): maximum number of steps to take. Defaults to
+        None.
+      work_dir (str, optional): working directory where history of the inversion
+        is saved.
+        Defaults to 'wrk'.
+      prefix (str, optional): prefix for saving history in the working directory.
+        Defaults to None.
+      iterations_per_save (int, optional): Number of iterations to save.
+        Defaults to 10.
+      iterations_in_buffer (int, optional): Number of iterations to store in buffer.
+        Defaults to 3.
+    """
     # check that the observed data matches the data space of the wave_eq_solver
     if wave_eq_solver._get_data().shape != seismic_data.shape:
       raise RuntimeError(
@@ -115,12 +141,13 @@ class WaveEquationInversion():
     The wave_equation_solver is modified in place.
 
     Args:
-        operator
+        wave_eq_solver (WaveEquation): The wave equation solver to add the geradient masking to.
         gradient_mask (np.ndarray): Mask to be mulitpied with computed gradient.
 
     Returns:
         WaveEquation: modified wave_equation_solver
     """
+
     # pad gradient mask
     gradient_mask = wave_eq_solver._pad_model(gradient_mask,
                                               wave_eq_solver.model_padding,
@@ -137,17 +164,24 @@ class WaveEquationInversion():
 
     return wave_eq_solver
 
-  def _make_nl_problem(self,
-                       model,
-                       data,
-                       operator,
-                       model_bounds: List[float] = None
-                      ) -> Prblm.ProblemL2NonLinear:
-    """
-    Helper function to create inversion problem
+  def _make_nl_problem(
+      self,
+      model: SepVector.floatVector,
+      data: SepVector.floatVector,
+      operator: Operator,
+      model_bounds: List[float] = None) -> Prblm.ProblemL2NonLinear:
+    """Helper function to create inversion problem
 
-    Parameters:
-      
+    Args:
+        model (SepVector.floatVector): model space of inversion problem
+        data (SepVector.floatVector): data space of inversion problem
+        operator (Operator): nonlinear operator of inversion problem, mapping
+          model space to data space.
+        model_bounds (List[float], optional): upper and lower bounds of model
+          space values. Defaults to None.
+
+    Returns:
+        Prblm.ProblemL2NonLinear: nonlinear L2 inversion problem
     """
     if model_bounds is None:
       min_bound = None
@@ -163,11 +197,16 @@ class WaveEquationInversion():
                                     maxBound=max_bound)
 
   def _make_lin_problem(self, model, data, operator) -> Prblm.ProblemL2Linear:
-    """
-    Helper function to create inversion problem
+    """Helper function to create inversion problem
 
-    Parameters:
-      
+    Args:
+        model (SepVector): model space of inversion problem
+        data (SepVector): data space of inversion problem
+        operator (Operator): linear operator of inversion problem, mapping model
+          space to data space.
+
+    Returns:
+        Prblm.ProblemL2Linear: linear L2 inversion problem
     """
 
     return Prblm.ProblemL2Linear(model, data, operator)
@@ -178,11 +217,11 @@ class WaveEquationInversion():
     Helper function to create bounds for the inversion problem.
     
     Parameters:
-      wave_eq_solver (wave_equation.WaveEquation): The wave equation solver
-      bounds (numpy.ndarray): The bounds on the model to be used.
+      model_sep (SepVector.floatVector): Model space to be used.
+      bounds (numpy.ndarray): The bound on the model to be used.
     
     Returns:
-      bounds (numpy.ndarray): The bounds that are set.
+      bounds (numpy.ndarray): A numpy array of the same shape as the model space
     """
     bound_sep = model_sep.clone()
     bound_arr = bound_sep.getNdArray()
@@ -282,25 +321,47 @@ class Lsrtm(WaveEquationInversion):
                num_iter: int,
                starting_model: np.ndarray = None,
                solver_type: str = 'cg',
-               max_steps: int = None,
                work_dir: str = 'wrk',
                prefix: str = None,
                iterations_per_save: int = 10,
                iterations_in_buffer: int = 3,
                gradient_mask: np.ndarray = None) -> None:
+    """Initialize the Least Squares Reverse Time Migration (LSRTM) class.
+    
+    Used to set up all the attributes of the Lsrtm object that are required to
+    run an inversion.
+
+    Parameters:
+        wave_eq_solver (wave_equation.WaveEquation): the wave equation solver
+        linear_data (np.ndarray): seimic data to be inverted
+        migration_model (np.ndarray): the background velocity model around which the wave equation is linearized
+        num_iter (int): number of inversion iterations
+        starting_model (np.ndarray, optional): starting image. Defaults to None.
+        solver_type (str, optional): type of inversion solver. Defaults to 'cg'.
+        work_dir (str, optional): working directory where history of the inversion
+          is saved. Defaults to './wrk'.
+        prefix (str, optional): prefix for saving history in the working directory.
+          Defaults to None.
+        iterations_per_save (int, optional): Number of iterations to save.
+          Defaults to 10.
+        iterations_in_buffer (int, optional): Number of iterations to store in buffer.
+          Defaults to 3.
+        gradient_mask: (np.ndarry, optional): Multiplied with gradient of FWI
+          before computing step size. Must be the shape of wave_eq_solver model
+          space (which is also the same shape as the starting_model).
+    """
     # call parent constructor
     super().__init__(wave_eq_solver=wave_eq_solver,
                      seismic_data=linear_data,
                      earth_model=migration_model,
                      num_iter=num_iter,
                      solver_type=solver_type,
-                     max_steps=max_steps,
                      work_dir=work_dir,
                      prefix=prefix,
                      iterations_per_save=iterations_per_save,
                      iterations_in_buffer=iterations_in_buffer)
 
-    # make fwi operator which contains jacobian operator
+    # make fwi operator which contains the jacobian operator
     if self.wave_eq_solver._fwi_operator is None:
       self.wave_eq_solver._fwi_operator = self.wave_eq_solver._setup_fwi_op()
 
@@ -337,9 +398,10 @@ class Fwi(WaveEquationInversion):
                iterations_in_buffer: int = 3,
                gradient_mask: np.ndarray = None) -> None:
     """
-    Initialize the FWI (Full Waveform Inversion) class. 
-    It is used to set up all the attributes of the FWI object
-    that are required to run the inversion.
+    Initialize the FWI (Full Waveform Inversion) class.
+    
+    Used to set up all the attributes of the FWI object that are required to run
+    an inversion.
     
     Parameters:
       wave_eq_solver (wave_equation.WaveEquatio): the wave equation solver. See
