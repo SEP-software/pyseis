@@ -133,42 +133,22 @@ class WaveEquationInversion():
 
     return self.history
 
-  def _add_grad_mask_operator(
-      self, wave_eq_solver: wave_equation.WaveEquation,
-      gradient_mask: np.ndarray) -> wave_equation.WaveEquation:
-    """Adds a diagonal operator to the jacobian of the wave equation solver.
-    
-    The wave_equation_solver is modified in place.
-
-    Args:
-        wave_eq_solver (WaveEquation): The wave equation solver to add the geradient masking to.
-        gradient_mask (np.ndarray): Mask to be mulitpied with computed gradient.
-
-    Returns:
-        WaveEquation: modified wave_equation_solver
-    """
-
-    # pad gradient mask
+  def _make_grad_mask(self, gradient_mask, wave_eq_solver):
+     # pad gradient mask
     gradient_mask = wave_eq_solver._pad_model(gradient_mask,
                                               wave_eq_solver.model_padding,
                                               wave_eq_solver._FAT)
     gradient_mask_sep = wave_eq_solver.model_sep.clone()
     gradient_mask_sep.getNdArray()[:] = gradient_mask
-
-    # make grad mask operator
-    grad_mask_op = Operator.DiagonalOp(gradient_mask_sep)
-
-    # combine operators
-    wave_eq_solver._fwi_operator.lin_op = Operator.ChainOperator(
-        grad_mask_op, wave_eq_solver._fwi_operator.lin_op)
-
-    return wave_eq_solver
-
+    
+    return gradient_mask_sep
+    
   def _make_nl_problem(
       self,
       model: SepVector.floatVector,
       data: SepVector.floatVector,
       operator: Operator,
+      gradient_mask: SepVector.floatVector = None,
       model_bounds: List[float] = None) -> Prblm.ProblemL2NonLinear:
     """Helper function to create inversion problem
 
@@ -194,9 +174,11 @@ class WaveEquationInversion():
                                     data,
                                     operator,
                                     minBound=min_bound,
-                                    maxBound=max_bound)
+                                    maxBound=max_bound,
+                                    grad_mask=gradient_mask)
 
-  def _make_lin_problem(self, model, data, operator) -> Prblm.ProblemL2Linear:
+  def _make_lin_problem(self, model: SepVector.floatVector, data: SepVector.floatVector, operator: Operator,
+      gradient_mask: SepVector.floatVector = None,) -> Prblm.ProblemL2Linear:
     """Helper function to create inversion problem
 
     Args:
@@ -209,7 +191,7 @@ class WaveEquationInversion():
         Prblm.ProblemL2Linear: linear L2 inversion problem
     """
 
-    return Prblm.ProblemL2Linear(model, data, operator)
+    return Prblm.ProblemL2Linear(model, data, operator,grad_mask=gradient_mask)
 
   def _make_bounds(self, model_sep: SepVector.floatVector,
                    bound: float) -> SepVector.floatVector:
@@ -366,10 +348,9 @@ class Lsrtm(WaveEquationInversion):
     if self.wave_eq_solver._fwi_operator is None:
       self.wave_eq_solver._fwi_operator = self.wave_eq_solver._setup_fwi_op()
 
-    # add gradient mask operator
+    # make gradient mask
     if gradient_mask is not None:
-      self.wave_eq_solver = self._add_grad_mask_operator(
-          self.wave_eq_solver, gradient_mask)
+      gradient_mask = self._make_grad_mask(gradient_mask, self.wave_eq_solver)
 
     # create inversion problem
     self.wave_eq_solver._set_data(linear_data)
@@ -379,7 +360,8 @@ class Lsrtm(WaveEquationInversion):
     wave_eq_solver._set_lin_model(starting_model)
     self.problem = self._make_lin_problem(self.wave_eq_solver.lin_model_sep,
                                           self.wave_eq_solver.data_sep,
-                                          self.wave_eq_solver._jac_operator)
+                                          self.wave_eq_solver._jac_operator,
+                                          gradient_mask=gradient_mask)
 
 
 class Fwi(WaveEquationInversion):
@@ -447,10 +429,9 @@ class Fwi(WaveEquationInversion):
     if self.wave_eq_solver._fwi_operator is None:
       self.wave_eq_solver._fwi_operator = self.wave_eq_solver._setup_fwi_op()
 
-    # add gradient mask operator
+    # make gradient mask
     if gradient_mask is not None:
-      self.wave_eq_solver = self._add_grad_mask_operator(
-          self.wave_eq_solver, gradient_mask)
+      gradient_mask = self._make_grad_mask(gradient_mask, self.wave_eq_solver)
 
     # create inversion problem
     self.wave_eq_solver._set_data(obs_data)
@@ -458,6 +439,7 @@ class Fwi(WaveEquationInversion):
     self.problem = self._make_nl_problem(self.wave_eq_solver.model_sep,
                                          self.wave_eq_solver.data_sep,
                                          self.wave_eq_solver._fwi_operator,
+                                         gradient_mask=gradient_mask,
                                          model_bounds=model_bounds)
 
 
