@@ -276,7 +276,9 @@ class WaveEquation(abc.ABC):
 
     self.data_sep = self._nl_operator.range.clone()
 
-  def forward(self, model: np.ndarray) -> np.ndarray:
+  def forward(self,
+              model: np.ndarray,
+              save_wavefield: bool = False) -> np.ndarray:
     """Run the nonlinear, forward wave equation.
     
     d = f(m)
@@ -288,8 +290,13 @@ class WaveEquation(abc.ABC):
         np.ndarray: seismic wavefield sampled at receivers
     """
     self._set_model(model)
-    self._nl_operator.forward(0, self.model_sep, self.data_sep)
-    return np.copy(self.data_sep.getNdArray())
+    if save_wavefield:
+      wavefield = self._nl_operator.forward_wavefield(0, self.model_sep,
+                                                      self.data_sep)
+      return np.copy(self.data_sep.getNdArray()), wavefield
+    else:
+      self._nl_operator.forward(0, self.model_sep, self.data_sep)
+      return np.copy(self.data_sep.getNdArray())
 
   def jacobian(self,
                lin_model: np.ndarray,
@@ -1145,7 +1152,7 @@ class _NonlinearWaveCppOp(abc.ABC, Operator.Operator):
     self.wavelet_nl_sep = wavelet_nl_sep
 
   def forward(self, add, model_sep, data_sep):
-    #Setting elastic model parameters
+    #Setting model parameters
     self.set_background(model_sep)
     with ostream_redirect():
       self.wave_prop_operator.forward(add, self.wavelet_nl_sep.getCpp(),
@@ -1154,6 +1161,21 @@ class _NonlinearWaveCppOp(abc.ABC, Operator.Operator):
   def set_background(self, model_sep):
     with ostream_redirect():
       self.wave_prop_operator.setBackground(model_sep.getCpp())
+
+  def _get_wavefield(self):
+    with ostream_redirect():
+      wfld = self.wave_prop_operator.getWfld()
+      wfld = SepVector.floatVector(fromCpp=wfld)
+    return wfld
+
+  def forward_wavefield(self, add, model_sep, data_sep):
+    #Setting model parameters
+    self.set_background(model_sep)
+    with ostream_redirect():
+      self.wave_prop_operator.forwardWavefield(add,
+                                               self.wavelet_nl_sep.getCpp(),
+                                               data_sep.getCpp())
+    return self._get_wavefield()
 
 
 class _JacobianWaveCppOp(abc.ABC, Operator.Operator):
