@@ -44,8 +44,16 @@ class ElasticIsotropicRicker3D(Elastic3D):
 
 class ElasticIsotropicTrapezoid3D(Elastic3D):
 
-  def __init__(self, n_t: int, d_t: float, f1: float, f2: float, f3: float,
-               f4: float, delay: float):
+  def __init__(self,
+               n_t: int,
+               d_t: float,
+               f1: float,
+               f2: float,
+               f3: float,
+               f4: float,
+               delay: float,
+               a2: float = 1.0,
+               a3: float = 1.0):
     """doc
     """
     self.f1 = f1
@@ -53,8 +61,10 @@ class ElasticIsotropicTrapezoid3D(Elastic3D):
     self.f3 = f3
     self.f4 = f4
     self.delay = delay
+    self.a2 = a2
+    self.a3 = a3
 
     trace = Wavelet.make_trapezoid_trace(n_t, d_t, self.f1, self.f2, self.f3,
-                                         self.f4, self.delay)
+                                         self.f4, self.delay, self.a2, self.a3)
     arr = make_isotropic_components(trace)
     super().__init__(arr, d_t)

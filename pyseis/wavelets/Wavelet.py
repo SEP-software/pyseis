@@ -131,16 +131,18 @@ def make_ricker_trace(n_t, d_t, dom_freq, delay=0.0):
   return arr
 
 
-def make_trapezoid_trace(n_t, d_t, f1, f2, f3, f4, delay=0.0):
+def make_trapezoid_trace(n_t, d_t, f1, f2, f3, f4, delay=0.0, a2=1, a3=1):
   """return a np array trapezoid wavelet 
 
     wavelet is defined by a trapezoid in the frequency domain
     ^
-    |         f2____f3
+    |         a2____a3
     |        /        \
     |       /          \
-    | ___f1/            \f4___
+    | __0.0/            \0.0___
     --------------------------->
+          |   |      |    | 
+          f1  f2     f3   f4
             freq (hz)
     Args:
       n_t - int - number of time samples
@@ -150,6 +152,8 @@ def make_trapezoid_trace(n_t, d_t, f1, f2, f3, f4, delay=0.0):
       f3 - float - third corner of trapezoid
       f4 - float - fourth corner of trapezoid. above which freq content is zero.
       delay - float - how far to shift center of wavelet
+      a2 - float - amplitute at f2
+      a3 - float - amplitute at f3
     Returns:
       arr - 1D np array 
     """
@@ -182,14 +186,18 @@ def make_trapezoid_trace(n_t, d_t, f1, f2, f3, f4, delay=0.0):
   right_zero = f >= f4
 
   arr_fft[left_zero] = 0.0
-  arr_fft[ramp_up] = np.cos(np.pi / 2.0 * (f2 - f[ramp_up]) /
-                            (f2 - f1)) * np.cos(np.pi / 2.0 *
-                                                (f2 - f[ramp_up]) / (f2 - f1))
-  arr_fft[plateau] = 1.0
-  arr_fft[ramp_down] = np.cos(np.pi / 2.0 * (f[ramp_down] - f3) /
-                              (f4 - f3)) * np.cos(np.pi / 2.0 *
-                                                  (f[ramp_down] - f3) /
-                                                  (f4 - f3))
+  arr_fft[ramp_up] = a2 * np.cos(np.pi / 2.0 * (f2 - f[ramp_up]) /
+                                 (f2 - f1)) * np.cos(np.pi / 2.0 *
+                                                     (f2 - f[ramp_up]) /
+                                                     (f2 - f1))
+  arr_fft[plateau] = a2 * (f3 - f[plateau]) / (f3 -
+                                               f2) + a3 * (1 -
+                                                           (f3 - f[plateau]) /
+                                                           (f3 - f2))
+  arr_fft[ramp_down] = a3 * np.cos(np.pi / 2.0 * (f[ramp_down] - f3) /
+                                   (f4 - f3)) * np.cos(np.pi / 2.0 *
+                                                       (f[ramp_down] - f3) /
+                                                       (f4 - f3))
   arr_fft[right_zero] = 0.0
   arr_fft *= np.exp(-1j * 2.0 * np.pi * f * delay)
 
