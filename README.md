@@ -20,7 +20,7 @@ Why it’s useful:
 ## Getting started
 1. clone the repo.
 ```console
-git clone http://cees-gitlab.stanford.edu/sfarris/pyseis.git && cd pyseis
+git clone https//github.com/SEP-software/pyseis.git && cd pyseis
 ```
 2. Run notebooks using jupyter lab from within docker container. Container has all required packages and compiled C++ binaries.
 ```console
